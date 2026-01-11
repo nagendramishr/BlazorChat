@@ -1,0 +1,72 @@
+ ## Infrastructure & Core Platform
+- Webserver running .NET 10 with Blazor
+- Includes packages for dependency injection
+- Includes packages for handling HTTP requests and responses via Kestrel server
+
+## Data & Persistence
+- Connection to Cosmos DB to store user conversations
+- Define Cosmos DB container schema with appropriate partition key strategy for chat conversations
+- Implement conversation history pagination and efficient query patterns
+- Add caching strategy (e.g., memory cache) for frequently accessed conversation metadata
+- Consider implementing hierarchical partition keys (HPK) if supporting multi-tenant scenarios
+- Implement connection pooling for Cosmos DB client (singleton pattern)
+
+## Security & Authentication
+- Service Authentication: Uses DefaultAzureCredential for connecting to Azure services (Cosmos DB, AI Foundry, Key Vault)
+- User Authentication: ASP.NET Core Identity with SQLite database (sufficient for demo)
+  - Optional Post-Demo: Migrate to Azure AD (Microsoft Entra ID) for enterprise SSO and MFA
+- Includes necessary packages for handling authorization policies
+- Implement proper CORS policies for the Blazor application
+- Add rate limiting to prevent abuse of chat endpoints
+- Implement secure API key/secret management for AI Foundry connection (use Azure Key Vault)
+- Add input validation and sanitization for user messages to prevent injection attacks
+- Implement proper authorization policies to ensure users can only access their own conversations
+
+## AI & Chat Functionality
+- Server side stubs to communicate with AI Foundry agents
+- Implement message streaming from AI Foundry agents for better UX
+- Add error handling and fallback mechanisms for AI service failures
+- Include conversation context management (token limits, context window handling)
+- Add support for markdown rendering in chat messages
+- Implement file/image upload capabilities if needed
+- Add conversation summarization for long chat histories
+
+## Real-time Features
+- Consider SignalR integration for real-time chat updates and streaming responses
+- Implement typing indicators and presence detection
+- Add connection state management and reconnection logic for resilient chat experience
+
+## User Experience
+- Includes a chat UI component library for Blazor
+- Chat UI can be customized with themes and styles
+- Implement offline support or graceful degradation when services are unavailable
+- Add loading states and skeleton screens during data fetches
+- Implement conversation search functionality
+- Add export/archive functionality for conversations
+- Include user preferences storage (theme, notification settings, etc.)
+
+## Monitoring & Observability
+- Logger to Application Insights with the normal setup for Blazor applications
+- Add custom telemetry events for chat interactions (messages sent, response times, errors)
+- Implement health check endpoints for monitoring service availability
+- Add Cosmos DB diagnostic logging for troubleshooting performance issues
+- Track AI Foundry API usage and costs
+
+## Performance & Scalability
+- Add async/await patterns consistently throughout the application
+- Consider implementing response caching where appropriate
+- Add bulk operations support if handling multiple conversations simultaneously
+
+## Development & DevOps
+- Includes packages for managing configuration settings
+- Add comprehensive unit and integration tests
+- Include API documentation (Swagger/OpenAPI)
+- Implement structured configuration management (appsettings per environment)
+- Add container support (Dockerfile) for deployment flexibility
+- Include CI/CD pipeline configuration (GitHub Actions or Azure DevOps)
+- Add environment-specific configuration validation on startup
+
+## Compliance & Data Management
+- Implement data retention policies for conversation history
+- Add GDPR compliance features (data export, right to be forgotten)
+- Include audit logging for sensitive operations
