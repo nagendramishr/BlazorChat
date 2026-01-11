@@ -1,0 +1,149 @@
+/* Markdown Rendering Styles */
+.markdown-content {
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+    line-height: 1.6;
+    color: inherit;
+}
+
+.markdown-content h1,
+.markdown-content h2,
+.markdown-content h3,
+.markdown-content h4,
+.markdown-content h5,
+.markdown-content h6 {
+    margin-top: 1.5em;
+    margin-bottom: 0.5em;
+    font-weight: 600;
+    line-height: 1.25;
+}
+
+.markdown-content h1 {
+    font-size: 2em;
+    border-bottom: 1px solid #eaecef;
+    padding-bottom: 0.3em;
+}
+
+.markdown-content h2 {
+    font-size: 1.5em;
+    border-bottom: 1px solid #eaecef;
+    padding-bottom: 0.3em;
+}
+
+.markdown-content h3 {
+    font-size: 1.25em;
+}
+
+.markdown-content p {
+    margin-bottom: 1em;
+}
+
+.markdown-content ul,
+.markdown-content ol {
+    margin-bottom: 1em;
+    padding-left: 2em;
+}
+
+.markdown-content li {
+    margin-bottom: 0.25em;
+}
+
+.markdown-content code {
+    background-color: rgba(27, 31, 35, 0.05);
+    border-radius: 3px;
+    padding: 0.2em 0.4em;
+    font-family: 'Courier New', Courier, monospace;
+    font-size: 85%;
+}
+
+.markdown-content pre {
+    background-color: #f6f8fa;
+    border-radius: 6px;
+    padding: 16px;
+    overflow: auto;
+    margin-bottom: 1em;
+}
+
+.markdown-content pre code {
+    background-color: transparent;
+    padding: 0;
+    font-size: 100%;
+    display: block;
+}
+
+.markdown-content blockquote {
+    border-left: 4px solid #dfe2e5;
+    padding: 0 1em;
+    color: #6a737d;
+    margin-bottom: 1em;
+}
+
+.markdown-content table {
+    border-collapse: collapse;
+    width: 100%;
+    margin-bottom: 1em;
+}
+
+.markdown-content table th,
+.markdown-content table td {
+    border: 1px solid #dfe2e5;
+    padding: 6px 13px;
+}
+
+.markdown-content table th {
+    font-weight: 600;
+    background-color: #f6f8fa;
+}
+
+.markdown-content a {
+    color: #0366d6;
+    text-decoration: none;
+}
+
+.markdown-content a:hover {
+    text-decoration: underline;
+}
+
+.markdown-content hr {
+    border: 0;
+    border-top: 1px solid #eaecef;
+    margin: 1.5em 0;
+}
+
+.markdown-content img {
+    max-width: 100%;
+    height: auto;
+}
+
+/* Dark theme support */
+@media (prefers-color-scheme: dark) {
+    .markdown-content code {
+        background-color: rgba(110, 118, 129, 0.4);
+    }
+
+    .markdown-content pre {
+        background-color: #161b22;
+    }
+
+    .markdown-content blockquote {
+        border-left-color: #3b434b;
+        color: #8b949e;
+    }
+
+    .markdown-content table th,
+    .markdown-content table td {
+        border-color: #3b434b;
+    }
+
+    .markdown-content table th {
+        background-color: #161b22;
+    }
+
+    .markdown-content h1,
+    .markdown-content h2 {
+        border-bottom-color: #21262d;
+    }
+
+    .markdown-content hr {
+        border-top-color: #21262d;
+    }
+}

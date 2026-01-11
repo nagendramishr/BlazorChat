@@ -1,0 +1,444 @@
+@page "/chat"
+@page "/chat/{ConversationId}"
+@using Microsoft.AspNetCore.Authorization
+@using src.Models
+@using src.Services
+@inject ICosmosDbService CosmosDbService
+@inject IAIFoundryService AIFoundryService
+@inject IConversationContextManager ContextManager
+@inject ITelemetryService TelemetryService
+@inject ISnackbar Snackbar
+@rendermode InteractiveServer
+@attribute [Authorize]
+
+<PageTitle>Chat - BlazorChat</PageTitle>
+
+<MudThemeProvider />
+<MudPopoverProvider />
+<MudDialogProvider />
+<MudSnackbarProvider />
+
+<MudContainer MaxWidth="MaxWidth.ExtraExtraLarge" Class="pa-0" Style="height: calc(100vh - 64px);">
+    <MudPaper Elevation="0" Class="d-flex" Style="height: 100%;">
+        
+        @* Conversation Sidebar *@
+        <MudPaper Elevation="1" Class="flex-none" Style="width: 300px; height: 100%; overflow-y: auto;">
+            <MudStack Spacing="0">
+                <MudPaper Elevation="0" Class="pa-2">
+                    <MudButton Variant="Variant.Filled" 
+                              Color="Color.Primary" 
+                              StartIcon="@Icons.Material.Filled.Add"
+                              FullWidth="true"
+                              OnClick="CreateNewConversation">
+                        New Chat
+                    </MudButton>
+                </MudPaper>
+                <MudDivider />
+                
+                @if (conversations == null)
+                {
+                    <MudPaper Elevation="0" Class="pa-2">
+                        <MudProgressLinear Indeterminate="true" Color="Color.Primary" />
+                    </MudPaper>
+                }
+                else if (!conversations.Any())
+                {
+                    <MudPaper Elevation="0" Class="pa-2">
+                        <MudText Typo="Typo.body2" Color="Color.Secondary">No conversations yet</MudText>
+                    </MudPaper>
+                }
+                else
+                {
+                    @foreach (var conv in conversations)
+                    {
+                        <MudPaper Elevation="@(currentConversationId == conv.Id ? 2 : 0)" 
+                                 Class="pa-2 ma-1 cursor-pointer" 
+                                 Style="@(currentConversationId == conv.Id ? "background-color: #e3f2fd;" : "")"
+                                 @onclick="@(() => SelectConversation(conv.Id))">
+                            <MudText Typo="Typo.body1">@conv.Title</MudText>
+                            <MudText Typo="Typo.caption" Color="Color.Secondary">
+                                @conv.UpdatedAt.ToLocalTime().ToString("MMM d, h:mm tt")
+                            </MudText>
+                        </MudPaper>
+                    }
+                }
+            </MudStack>
+        </MudPaper>
+
+        @* Main Chat Area *@
+        <MudPaper Elevation="0" Class="flex-grow-1 d-flex flex-column" Style="height: 100%;">
+            
+            @* Chat Header *@
+            <MudAppBar Elevation="1" Dense="true">
+                <MudText Typo="Typo.h6">@currentConversationTitle</MudText>
+                <MudSpacer />
+                @if (!string.IsNullOrEmpty(currentConversationId))
+                {
+                    <MudIconButton Icon="@Icons.Material.Filled.MoreVert" Color="Color.Inherit" />
+                }
+            </MudAppBar>
+
+            @* Messages Area *@
+            <MudPaper Class="flex-grow-1 pa-4" Style="overflow-y: auto; height: 100%;" id="messageContainer">
+                @if (messages == null)
+                {
+                    <MudProgressLinear Indeterminate="true" Color="Color.Primary" />
+                }
+                else if (!messages.Any() && !string.IsNullOrEmpty(currentConversationId))
+                {
+                    <MudText Typo="Typo.body1" Align="Align.Center" Class="mt-8">
+                        No messages yet. Start the conversation!
+                    </MudText>
+                }
+                else if (string.IsNullOrEmpty(currentConversationId))
+                {
+                    <div class="d-flex flex-column align-center justify-center" style="height: 100%;">
+                        <MudIcon Icon="@Icons.Material.Filled.Chat" Size="Size.Large" Color="Color.Secondary" />
+                        <MudText Typo="Typo.h5" Class="mt-4">Welcome to BlazorChat</MudText>
+                        <MudText Typo="Typo.body1" Color="Color.Secondary">
+                            Select a conversation or start a new one
+                        </MudText>
+                    </div>
+                }
+                else
+                {
+                    @foreach (var message in messages)
+                    {
+                        <div class="@GetMessageClass(message)" style="margin-bottom: 16px;">
+                            <MudPaper Elevation="1" Class="pa-3" Style="@GetMessageStyle(message)">
+                                <MudText Typo="Typo.caption" Color="Color.Secondary" Class="mb-1">
+                                    @(message.Role == MessageRole.User ? "You" : "Assistant")
+                                    • @message.Timestamp.ToLocalTime().ToString("h:mm tt")
+                                </MudText>
+                                @if (message.Role == MessageRole.Assistant)
+                                {
+                                    <src.Components.Shared.MarkdownRenderer Content="@message.Content" />
+                                }
+                                else
+                                {
+                                    <MudText Typo="Typo.body1" Style="white-space: pre-wrap;">@message.Content</MudText>
+                                }
+                            </MudPaper>
+                        </div>
+                    }
+                    
+                    @if (isLoading)
+                    {
+                        <div class="d-flex align-start" style="margin-bottom: 16px;">
+                            <MudPaper Elevation="1" Class="pa-3" Style="max-width: 70%; background-color: #f5f5f5;">
+                                <MudProgressCircular Size="Size.Small" Indeterminate="true" />
+                            </MudPaper>
+                        </div>
+                    }
+                }
+            </MudPaper>
+
+            @* Input Area *@
+            @if (!string.IsNullOrEmpty(currentConversationId))
+            {
+                <MudPaper Elevation="2" Class="pa-3">
+                    <div class="d-flex gap-2">
+                        <MudTextField @bind-Value="currentMessage"
+                                     Label="Type a message..."
+                                     Variant="Variant.Outlined"
+                                     Lines="3"
+                                     FullWidth="true"
+                                     Disabled="@isLoading"
+                                     OnKeyDown="HandleKeyPress" />
+                        <MudButton Variant="Variant.Filled"
+                                  Color="Color.Primary"
+                                  StartIcon="@Icons.Material.Filled.Send"
+                                  Disabled="@(string.IsNullOrWhiteSpace(currentMessage) || isLoading)"
+                                  OnClick="SendMessage"
+                                  Style="align-self: flex-end;">
+                            Send
+                        </MudButton>
+                    </div>
+                </MudPaper>
+            }
+        </MudPaper>
+    </MudPaper>
+</MudContainer>
+
+@code {
+    [Parameter]
+    public string? ConversationId { get; set; }
+
+    [CascadingParameter]
+    private Task<AuthenticationState>? AuthenticationStateTask { get; set; }
+
+    private List<Conversation>? conversations;
+    private List<Message>? messages;
+    private string? currentConversationId;
+    private string currentConversationTitle = "Chat";
+    private string currentMessage = string.Empty;
+    private bool isLoading = false;
+    private string? currentUserId;
+    private string? errorMessage;
+
+    protected override async Task OnInitializedAsync()
+    {
+        // Get current user
+        if (AuthenticationStateTask != null)
+        {
+            var authState = await AuthenticationStateTask;
+            currentUserId = authState.User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value;
+        }
+
+        // Default userId for testing if not authenticated
+        if (string.IsNullOrEmpty(currentUserId))
+        {
+            currentUserId = "test-user";
+        }
+
+        // Load conversations from Cosmos DB
+        await LoadConversations();
+
+        // If a conversation ID is provided in the route, load it
+        if (!string.IsNullOrEmpty(ConversationId))
+        {
+            await SelectConversation(ConversationId);
+        }
+    }
+
+    private async Task LoadConversations()
+    {
+        try
+        {
+            var conversationList = await CosmosDbService.GetConversationsAsync(currentUserId!, maxItems: 50);
+            conversations = conversationList.ToList();
+        }
+        catch (Exception ex)
+        {
+            errorMessage = $"Failed to load conversations: {ex.Message}";
+            Snackbar.Add(errorMessage, Severity.Error);
+            conversations = new List<Conversation>();
+        }
+    }
+
+    private async Task CreateNewConversation()
+    {
+        try
+        {
+            var newConv = new Conversation
+            {
+                Id = Guid.NewGuid().ToString(),
+                Title = "New Conversation",
+                UserId = currentUserId!,
+                CreatedAt = DateTime.UtcNow,
+                UpdatedAt = DateTime.UtcNow
+            };
+
+            var savedConv = await CosmosDbService.CreateConversationAsync(newConv);
+            conversations?.Insert(0, savedConv);
+            await SelectConversation(savedConv.Id);
+            
+            Snackbar.Add("New conversation created", Severity.Success);
+        }
+        catch (Exception ex)
+        {
+            Snackbar.Add($"Failed to create conversation: {ex.Message}", Severity.Error);
+        }
+    }
+
+    private async Task SelectConversation(string conversationId)
+    {
+        currentConversationId = conversationId;
+        var conversation = conversations?.FirstOrDefault(c => c.Id == conversationId);
+        currentConversationTitle = conversation?.Title ?? "Chat";
+
+        // Load messages for this conversation
+        await LoadMessages(conversationId);
+    }
+
+    private async Task LoadMessages(string conversationId)
+    {
+        isLoading = true;
+        
+        // TODO: Replace with actual Cosmos DB call
+        await Task.Delay(300); // Simulate API call
+
+        try
+        {
+            var messageList = await CosmosDbService.GetMessagesAsync(conversationId, maxItems: 100);
+            messages = messageList.ToList();
+        }
+        catch (Exception ex)
+        {
+            Snackbar.Add($"Failed to load messages: {ex.Message}", Severity.Error);
+            messages = new List<Message>();
+        }
+        finally
+        {
+            isLoading = false;
+        }
+    }
+
+    private async Task SendMessage()
+    {
+        if (string.IsNullOrWhiteSpace(currentMessage) || string.IsNullOrEmpty(currentConversationId))
+            return;
+
+        var userMessage = new Message
+        {
+            Id = Guid.NewGuid().ToString(),
+            ConversationId = currentConversationId,
+            UserId = currentUserId!,
+            Content = currentMessage,
+            Role = MessageRole.User,
+            Timestamp = DateTime.UtcNow
+        };
+
+        messages?.Add(userMessage);
+        var sentMessage = currentMessage;
+        currentMessage = string.Empty;
+        StateHasChanged();
+
+        try
+        {
+            // Track message sent
+            TelemetryService.TrackMessageSent(currentUserId!, currentConversationId, sentMessage.Length);
+
+            // Save user message to Cosmos DB
+            await CosmosDbService.SaveMessageAsync(userMessage);
+
+            // Update conversation timestamp
+            var conversation = conversations?.FirstOrDefault(c => c.Id == currentConversationId);
+            if (conversation != null)
+            {
+                conversation.UpdatedAt = DateTime.UtcNow;
+                conversation.MessageCount++;
+                
+                // Auto-generate title from first message if still "New Conversation"
+                if (conversation.Title == "New Conversation" && conversation.MessageCount == 1)
+                {
+                    conversation.Title = sentMessage.Length > 50 
+                        ? sentMessage.Substring(0, 47) + "..." 
+                        : sentMessage;
+                    currentConversationTitle = conversation.Title;
+                }
+                
+                await CosmosDbService.UpdateConversationAsync(conversation);
+            }
+
+            // Check if context trimming is needed
+            if (messages != null && ContextManager.ExceedsTokenLimit(messages, maxTokens: 6000))
+            {
+                Snackbar.Add("Long conversation detected. Context may be trimmed for optimal performance.", Severity.Info);
+                
+                // Trim context to fit within token limits
+                var trimmedMessages = ContextManager.TrimMessages(messages, maxTokens: 4000).ToList();
+                var estimatedTokens = ContextManager.EstimateTokenCount(trimmedMessages);
+                
+                TelemetryService.TrackConversationMetrics(currentConversationId, messages.Count, estimatedTokens);
+            }
+
+            // Call AI Foundry service for response with streaming
+            isLoading = true;
+            StateHasChanged();
+
+            var assistantMessage = new Message
+            {
+                Id = Guid.NewGuid().ToString(),
+                ConversationId = currentConversationId,
+                UserId = currentUserId!,
+                Content = string.Empty,
+                Role = MessageRole.Assistant,
+                Timestamp = DateTime.UtcNow
+            };
+
+            messages?.Add(assistantMessage);
+            StateHasChanged();
+
+            try
+            {
+                // Stream AI response
+                await foreach (var textChunk in AIFoundryService.SendMessageStreamingAsync(
+                    currentConversationId, sentMessage))
+                {
+                    assistantMessage.Content += textChunk;
+                    StateHasChanged();
+                }
+
+                // Save assistant message to Cosmos DB
+                await CosmosDbService.SaveMessageAsync(assistantMessage);
+            }
+            catch (Exception aiEx)
+            {
+                Snackbar.Add($"AI service error: {aiEx.Message}", Severity.Error);
+                
+                // Track exception
+                TelemetryService.TrackException(aiEx, currentUserId!, currentConversationId, new Dictionary<string, string>
+                {
+                    { "Operation", "AIResponse" },
+                    { "MessageLength", sentMessage.Length.ToString() }
+                });
+                
+                // Update message to show error
+                assistantMessage.Content = "Sorry, I encountered an error processing your request. Please try again.";
+                
+                // Save error message to Cosmos DB
+                try
+                {
+                    await CosmosDbService.SaveMessageAsync(assistantMessage);
+                }
+                catch
+                {
+                    // If we can't save, remove the message from the list
+                    messages?.Remove(assistantMessage);
+                }
+            }
+            
+            // Update conversation
+            if (conversation != null)
+            {
+                conversation.UpdatedAt = DateTime.UtcNow;
+                conversation.MessageCount++;
+                await CosmosDbService.UpdateConversationAsync(conversation);
+            }
+        }
+        catch (Exception ex)
+        {
+            Snackbar.Add($"Failed to send message: {ex.Message}", Severity.Error);
+            
+            // Track exception
+            TelemetryService.TrackException(ex, currentUserId!, currentConversationId, new Dictionary<string, string>
+            {
+                { "Operation", "SendMessage" }
+            });
+            
+            // Remove the message that failed to save
+            if (messages != null && messages.Count > 0)
+            {
+                messages.RemoveAt(messages.Count - 1);
+            }
+        }
+        finally
+        {
+            isLoading = false;
+        }
+    }
+
+    private async Task HandleKeyPress(KeyboardEventArgs e)
+    {
+        if (e.Key == "Enter" && !e.ShiftKey)
+        {
+            await SendMessage();
+        }
+    }
+
+    private string GetMessageClass(Message message)
+    {
+        return message.Role == MessageRole.User 
+            ? "d-flex justify-end" 
+            : "d-flex justify-start";
+    }
+
+    private string GetMessageStyle(Message message)
+    {
+        var baseStyle = "max-width: 70%;";
+        return message.Role == MessageRole.User
+            ? baseStyle + " background-color: #1976d2; color: white;"
+            : baseStyle + " background-color: #f5f5f5;";
+    }
+}
