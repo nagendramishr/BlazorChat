@@ -8,6 +8,7 @@
 @inject IConversationContextManager ContextManager
 @inject ITelemetryService TelemetryService
 @inject ISnackbar Snackbar
+@inject ILogger<Chat> _logger
 @rendermode InteractiveServer
 @attribute [Authorize]
 
@@ -52,13 +53,21 @@
                     @foreach (var conv in conversations)
                     {
                         <MudPaper Elevation="@(currentConversationId == conv.Id ? 2 : 0)" 
-                                 Class="pa-2 ma-1 cursor-pointer" 
-                                 Style="@(currentConversationId == conv.Id ? "background-color: #e3f2fd;" : "")"
-                                 @onclick="@(() => SelectConversation(conv.Id))">
-                            <MudText Typo="Typo.body1">@conv.Title</MudText>
-                            <MudText Typo="Typo.caption" Color="Color.Secondary">
-                                @conv.UpdatedAt.ToLocalTime().ToString("MMM d, h:mm tt")
-                            </MudText>
+                                 Class="pa-2 ma-1" 
+                                 Style="@(currentConversationId == conv.Id ? "background-color: #e3f2fd;" : "")">
+                            <div class="d-flex align-center justify-space-between">
+                                <div class="flex-grow-1 cursor-pointer" @onclick="@(() => SelectConversation(conv.Id))">
+                                    <MudText Typo="Typo.body1">@conv.Title</MudText>
+                                    <MudText Typo="Typo.caption" Color="Color.Secondary">
+                                        @conv.UpdatedAt.ToLocalTime().ToString("MMM d, h:mm tt")
+                                    </MudText>
+                                </div>
+                                <MudIconButton Icon="@Icons.Material.Filled.Delete" 
+                                             Size="Size.Small" 
+                                             Color="Color.Error"
+                                             OnClick="@(async () => await DeleteConversation(conv.Id))"
+                                             title="Delete conversation" />
+                            </div>
                         </MudPaper>
                     }
                 }
@@ -249,6 +258,40 @@
 
         // Load messages for this conversation
         await LoadMessages(conversationId);
+    }
+
+    private async Task DeleteConversation(string conversationId)
+    {
+        try
+        {
+            // Confirm deletion
+            var conversation = conversations?.FirstOrDefault(c => c.Id == conversationId);
+            if (conversation == null) return;
+
+            // Delete from Cosmos DB
+            await CosmosDbService.DeleteConversationAsync(conversationId, currentUserId!);
+
+            // Clear AI thread
+            await AIFoundryService.ClearConversationAsync(conversationId);
+
+            // Remove from local list
+            conversations?.RemoveAll(c => c.Id == conversationId);
+
+            // If we deleted the current conversation, clear the view
+            if (currentConversationId == conversationId)
+            {
+                currentConversationId = null;
+                currentConversationTitle = "Chat";
+                messages = new List<Message>();
+            }
+
+            Snackbar.Add($"Conversation '{conversation.Title}' deleted", Severity.Success);
+        }
+        catch (Exception ex)
+        {
+            Snackbar.Add($"Failed to delete conversation: {ex.Message}", Severity.Error);
+            _logger.LogError(ex, "Error deleting conversation {ConversationId}", conversationId);
+        }
     }
 
     private async Task LoadMessages(string conversationId)
