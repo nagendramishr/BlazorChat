@@ -91,27 +91,60 @@ NOTE: Current ASP.NET Core Identity with SQLite is sufficient for demo. Azure AD
 ## PHASE 2.5: Multi-Tenancy Architecture (New)
 Goal: Support multiple organizations (tenants) with isolated configuration and branding sharing the same db instance.
 
-### Task 2.5.1: Multi-Tenancy Database Schema
-- [ ] Create model: src/Models/Organization.cs
+### Task 2.5.1: Multi-Tenancy Database Schema ✓
+- [x] Create model: src/Models/Organization.cs
   - Properties: Id, Name, Slug (Index), PublicThemeSettings, PrivateAIConfig
   - Look & Feel: CustomCss (string), HeaderHtml (string), FooterHtml (string)
   - NOTE: Split model into "OrganizationPublicDTO" (Theme/Branding) for UI and "OrganizationSecrets" for Server to prevent leaking AI keys via public URL probing.
-- [ ] Update model: src/Data/ApplicationUser.cs
+- [x] Update model: src/Data/ApplicationUser.cs
   - Add property: OrganizationId
-- [ ] Create container in Cosmos DB: "organizations"
-- [ ] Update CosmosDbService to manage Organizations
 
-### Task 2.5.2: Tenant Resolution Strategy
-- [ ] Create service: src/Services/TenantService.cs
-- [ ] Implement URL Route Parameter strategy (/chat/{tenantSlug}) to support easy navigation/guessing
-- [ ] Update Layout/App.razor to wrap content in a TenantResolver component
-- [ ] Ensure TenantService loads ONLY PublicThemeSettings for the frontend resolution
-- [ ] Update App.razor to handle tenant routing scenarios
+### Task 2.5.2: Tenant Resolution Strategy ✓
+- [x] Implement Tenant Service: src/Services/TenantService.cs
+- [x] Update routing to support `/org/{slug}/...`
+- [x] Create Tenant Resolver Component: src/Components/Shared/TenantResolver.razor
+- [x] Validate Slug Uniqueness on creation.
 
-### Task 2.5.3: Organization Management (Admin)
-- [ ] Create page: src/Components/Pages/Admin/CreateOrganization.razor
+### Task 2.5.3: Tenant Management API Service (New) ✓
+- [x] Create interface: src/Services/ITenantAdminService.cs
+- [x] Implement service: src/Services/TenantAdminService.cs
+  - Methods: CreateOrganizationAsync, UpdateOrganizationAsync, DisableOrganizationAsync, ListOrganizationsAsync
+- [x] Create API Endpoints or Admin Page to manage tenants.
+  - Implemented `src/Controllers/TenantController.cs`
+- [ ] Create Admin Policy: Require "GlobalAdmin" role.
+- [ ] Create Admin UI Pages (optional for now, API first).
+
+### Task 2.5.4: Infrastructure Automation ✓
+- [x] Create Azure CLI setup script: scripts/init-azure-resources.ps1 (and .sh)
+- [x] Verify script creates all containers including `organizations`.
+- [x] Update CosmosDbService to manage Organizations container logic.
+
+### Task 2.5.5: UI Configuration Updates ✓
+- [x] Update MainLayout to support dynamic branding colors (MudBlazor).
+- [x] Add Tenant Awareness to NavMenu.
+- [x] Fix MudBlazor provider duplication issues in interactive rendering.
 - [ ] Create page: src/Components/Pages/Admin/OrganizationList.razor
 - [ ] Implement basic CRUD for Organizations
+
+## PHASE 2.6: Provisioning API Service (Hosted Separately)
+Goal: A standalone API service for automation/external management of tenants.
+
+### Task 2.6.1: API Project Setup
+- [ ] Create new project: src/BlazorChat.Provisioning.Api (ASP.NET Core Web API)
+- [ ] Configure Cosmos DB connection (Reuse models project)
+- [ ] Implement API Key Authentication (for Admin/System use)
+- [ ] Add Swagger/OpenAPI support
+
+### Task 2.6.2: Tenant Management Endpoints
+- [ ] Implement POST /tenants (Onboard new customer)
+- [ ] Implement PATCH /tenants/{id}/status (Enable/Disable)
+- [ ] Implement PUT /tenants/{id} (Update styling/config)
+- [ ] Implement GET /tenants (List with status)
+
+### Task 2.6.3: Deployment Configuration
+- [ ] Create Dockerfile for Provisioning API
+- [ ] Create Azure Container App / App Service bicep for API
+- [ ] Limit network access (Internal only or IP restricted)
 
 ## PHASE 3: Application Insights & Monitoring
 

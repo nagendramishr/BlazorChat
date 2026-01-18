@@ -1,11 +1,19 @@
 ﻿@using src.Components.Account.Shared
+@using src.Components.Shared 
+@using MudBlazor
+
 <Router AppAssembly="typeof(Program).Assembly" NotFoundPage="typeof(Pages.NotFound)">
     <Found Context="routeData">
-        <AuthorizeRouteView RouteData="routeData" DefaultLayout="typeof(Layout.MainLayout)">
-            <NotAuthorized>
-                <RedirectToLogin />
-            </NotAuthorized>
-        </AuthorizeRouteView>
-        <FocusOnNavigate RouteData="routeData" Selector="h1" />
+        @{
+            var tenantSlug = routeData.RouteValues.TryGetValue("TenantSlug", out var slug) ? slug?.ToString() : null;
+        }
+        <TenantResolver TenantSlug="@tenantSlug">
+            <AuthorizeRouteView RouteData="routeData" DefaultLayout="typeof(Layout.MainLayout)">
+                <NotAuthorized>
+                    <RedirectToLogin />
+                </NotAuthorized>
+            </AuthorizeRouteView>
+            <FocusOnNavigate RouteData="routeData" Selector="h1" />
+        </TenantResolver>
     </Found>
 </Router>

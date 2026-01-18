@@ -10,7 +10,8 @@ public static class SeedData
         var logger = serviceProvider.GetRequiredService<ILogger<Program>>();
 
         // Check if we should seed test user (useful for development)
-        var seedTestUser = Environment.GetEnvironmentVariable("SEED_TEST_USER");
+        // Default to true in Development if not specified
+        var seedTestUser = Environment.GetEnvironmentVariable("SEED_TEST_USER") ?? "true";
         if (string.Equals(seedTestUser, "true", StringComparison.OrdinalIgnoreCase))
         {
             var testEmail = Environment.GetEnvironmentVariable("TEST_USER_EMAIL") ?? "test@example.com";
@@ -37,7 +38,8 @@ public static class SeedData
         {
             UserName = email,
             Email = email,
-            EmailConfirmed = true // Skip email confirmation for test user
+            EmailConfirmed = true, // Skip email confirmation for test user
+            OrganizationId = "org-contoso" // Default to Contoso for test user
         };
 
         var result = await userManager.CreateAsync(user, password);

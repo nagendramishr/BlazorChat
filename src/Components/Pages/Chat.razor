@@ -1,5 +1,8 @@
 @page "/chat"
 @page "/chat/{ConversationId}"
+@page "/org/{TenantSlug}/chat"
+@page "/org/{TenantSlug}/chat/{ConversationId}"
+@rendermode @(new InteractiveServerRenderMode(prerender: false))
 @using Microsoft.AspNetCore.Authorization
 @using src.Models
 @using src.Services
@@ -11,15 +14,9 @@
 @inject AuthenticationStateProvider AuthenticationStateProvider
 @inject ISnackbar Snackbar
 @inject ILogger<Chat> _logger
-@rendermode InteractiveServer
 @attribute [Authorize]
 
 <PageTitle>Chat - BlazorChat</PageTitle>
-
-<MudThemeProvider />
-<MudPopoverProvider />
-<MudDialogProvider />
-<MudSnackbarProvider />
 
 <MudContainer MaxWidth="MaxWidth.ExtraExtraLarge" Class="pa-0" Style="height: calc(100vh - 64px);">
     <MudPaper Elevation="0" Class="d-flex" Style="height: 100%;">
@@ -174,6 +171,9 @@
 @code {
     [Parameter]
     public string? ConversationId { get; set; }
+
+    [Parameter]
+    public string? TenantSlug { get; set; }
 
     [CascadingParameter]
     private Task<AuthenticationState>? AuthenticationStateTask { get; set; }

@@ -22,6 +22,13 @@ public interface ICosmosDbService
     Task<UserPreferences?> GetUserPreferencesAsync(string userId);
     Task<UserPreferences> SaveUserPreferencesAsync(UserPreferences preferences);
 
+    // Organization operations
+    Task<Organization?> GetOrganizationAsync(string organizationId);
+    Task<Organization?> GetOrganizationBySlugAsync(string slug);
+    Task<Organization> CreateOrganizationAsync(Organization organization);
+    Task<Organization> UpdateOrganizationAsync(Organization organization);
+    Task<IEnumerable<Organization>> ListOrganizationsAsync();
+
     // Utility operations
     Task<int> GetConversationMessageCountAsync(string conversationId);
     Task<bool> ConversationExistsAsync(string conversationId, string userId);

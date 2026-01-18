@@ -11,6 +11,7 @@ public class CosmosDbService : ICosmosDbService
     private readonly Container _conversationsContainer;
     private readonly Container _messagesContainer;
     private readonly Container _preferencesContainer;
+    private readonly Container _organizationsContainer;
     private readonly ILogger<CosmosDbService> _logger;
 
     public CosmosDbService(IConfiguration configuration, ILogger<CosmosDbService> logger)
@@ -41,6 +42,7 @@ public class CosmosDbService : ICosmosDbService
         _conversationsContainer = database.GetContainer(configuration["CosmosDb:ConversationsContainerName"] ?? "conversations");
         _messagesContainer = database.GetContainer(configuration["CosmosDb:MessagesContainerName"] ?? "messages");
         _preferencesContainer = database.GetContainer(configuration["CosmosDb:PreferencesContainerName"] ?? "preferences");
+        _organizationsContainer = database.GetContainer(configuration["CosmosDb:OrganizationsContainerName"] ?? "organizations");
 
         _logger.LogInformation("CosmosDbService initialized with endpoint: {Endpoint}, database: {Database}", endpoint, databaseName);
     }
@@ -427,6 +429,120 @@ public class CosmosDbService : ICosmosDbService
         {
             _logger.LogDebug("Cosmos DB operation {Operation}: {Diagnostics}", 
                 operationName, diagnosticString);
+        }
+    }
+
+    #endregion
+
+    #region Organization Operations
+
+    public async Task<Organization?> GetOrganizationAsync(string organizationId)
+    {
+        try
+        {
+            var response = await _organizationsContainer.ReadItemAsync<Organization>(
+                organizationId, 
+                new PartitionKey(organizationId));
+
+            LogDiagnostics(response.Diagnostics, nameof(GetOrganizationAsync));
+            return response.Resource;
+        }
+        catch (CosmosException ex) when (ex.StatusCode == HttpStatusCode.NotFound)
+        {
+            _logger.LogWarning("Organization {OrganizationId} not found", organizationId);
+            return null;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error getting organization {OrganizationId}", organizationId);
+            throw;
+        }
+    }
+
+    public async Task<Organization?> GetOrganizationBySlugAsync(string slug)
+    {
+        try
+        {
+            var queryDefinition = new QueryDefinition(
+                "SELECT * FROM c WHERE c.slug = @slug")
+                .WithParameter("@slug", slug);
+
+            var iterator = _organizationsContainer.GetItemQueryIterator<Organization>(queryDefinition);
+
+            if (iterator.HasMoreResults)
+            {
+                var response = await iterator.ReadNextAsync();
+                LogDiagnostics(response.Diagnostics, nameof(GetOrganizationBySlugAsync));
+                return response.FirstOrDefault();
+            }
+
+            return null;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error getting organization by slug {Slug}", slug);
+            throw;
+        }
+    }
+
+    public async Task<Organization> CreateOrganizationAsync(Organization organization)
+    {
+        try
+        {
+            var response = await _organizationsContainer.CreateItemAsync(
+                organization,
+                new PartitionKey(organization.Id));
+
+            // LogDiagnostics(response.Diagnostics, nameof(CreateOrganizationAsync));
+            return response.Resource;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error creating organization {OrganizationId}", organization.Id);
+            throw;
+        }
+    }
+
+    public async Task<Organization> UpdateOrganizationAsync(Organization organization)
+    {
+        try
+        {
+            var response = await _organizationsContainer.ReplaceItemAsync(
+                organization,
+                organization.Id,
+                new PartitionKey(organization.Id));
+
+            LogDiagnostics(response.Diagnostics, nameof(UpdateOrganizationAsync));
+            return response.Resource;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error updating organization {OrganizationId}", organization.Id);
+            throw;
+        }
+    }
+
+    public async Task<IEnumerable<Organization>> ListOrganizationsAsync()
+    {
+        try
+        {
+            var queryDefinition = new QueryDefinition("SELECT * FROM c");
+            var iterator = _organizationsContainer.GetItemQueryIterator<Organization>(queryDefinition);
+            var results = new List<Organization>();
+
+            while (iterator.HasMoreResults)
+            {
+                var response = await iterator.ReadNextAsync();
+                LogDiagnostics(response.Diagnostics, nameof(ListOrganizationsAsync));
+                results.AddRange(response);
+            }
+
+            return results;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error listing organizations");
+            throw;
         }
     }
 

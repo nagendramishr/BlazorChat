@@ -1,0 +1,76 @@
+@using src.Services
+@inject ITenantService TenantService
+@inject NavigationManager Navigation
+@inject ILogger<TenantResolver> Logger
+
+@if (IsResolving)
+{
+    @* You can use a dedicated layout here if needed, or just a simple loader *@
+    <div class="d-flex justify-center align-center" style="height: 100vh; width: 100vw;">
+        <MudProgressCircular Color="Color.Primary" Indeterminate="true" />
+    </div>
+}
+else if (HasError)
+{
+     <div class="d-flex flex-column justify-center align-center" style="height: 100vh; width: 100vw;">
+        <MudIcon Icon="@Icons.Material.Filled.Error" Color="Color.Error" Size="Size.Large" Class="mb-4" />
+        <MudText Typo="Typo.h5">Organization Not Found</MudText>
+        <MudText Typo="Typo.body1" Class="mt-2 text-center" Style="max-width: 400px;">
+            The organization you are looking for does not exist or you do not have permission to access it.
+        </MudText>
+        <MudButton Variant="Variant.Filled" Color="Color.Primary" Class="mt-4" Href="/">Go Home</MudButton>
+    </div>
+}
+else
+{
+    @* Render the actual page content *@
+    <CascadingValue Value="@TenantService.CurrentTenant" Name="CurrentTenant">
+        @ChildContent
+    </CascadingValue>
+}
+
+@code {
+    [Parameter]
+    public RenderFragment? ChildContent { get; set; }
+
+    [Parameter]
+    public string? TenantSlug { get; set; }
+
+    private bool IsResolving = true;
+    private bool HasError = false;
+
+    protected override async Task OnParametersSetAsync()
+    {
+        // Reset state when parameters change
+        IsResolving = true;
+        HasError = false;
+
+        try
+        {
+            if (string.IsNullOrEmpty(TenantSlug))
+            {
+                // No tenant in URL (e.g. home page), proceed without tenant
+                IsResolving = false;
+                return;
+            }
+
+            Logger.LogInformation("TenantResolver: Resolving slug '{Slug}'", TenantSlug);
+            
+            var found = await TenantService.LoadTenantAsync(TenantSlug);
+            
+            if (!found)
+            {
+                HasError = true;
+            }
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Failed to resolve tenant");
+            HasError = true;
+        }
+        finally
+        {
+            IsResolving = false;
+        }
+    }
+}

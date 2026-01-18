@@ -34,6 +34,7 @@ builder.Services.AddApplicationInsightsTelemetry(options =>
 });
 
 // Add services to the container.
+builder.Services.AddControllers();
 builder.Services.AddRazorComponents()
     .AddInteractiveServerComponents();
 
@@ -82,6 +83,12 @@ builder.Services.AddSingleton<ITelemetryService, TelemetryService>();
 // Add Authorization Handlers
 builder.Services.AddScoped<IAuthorizationHandler, ConversationAuthorizationHandler>();
 
+// Add Tenant Service (Scoped because it holds per-request state)
+builder.Services.AddScoped<ITenantService, TenantService>();
+
+// Add Tenant Admin Service (Scoped)
+builder.Services.AddScoped<ITenantAdminService, TenantAdminService>();
+
 builder.Services.AddAuthorization(options =>
 {
     options.AddPolicy("MustOwnConversation", policy =>
@@ -95,6 +102,9 @@ if (app.Environment.IsDevelopment())
 {
     using (var scope = app.Services.CreateScope())
     {
+        // Seed Organizations
+        await src.Data.OrgSeeder.SeedAsync(scope.ServiceProvider);
+
         await SeedData.InitializeAsync(scope.ServiceProvider);
     }
 }
@@ -118,6 +128,8 @@ app.UseAntiforgery();
 app.MapStaticAssets();
 app.MapRazorComponents<App>()
     .AddInteractiveServerRenderMode();
+
+app.MapControllers();
 
 // Add additional endpoints required by the Identity /Account Razor components.
 app.MapAdditionalIdentityEndpoints();
