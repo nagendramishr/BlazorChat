@@ -1,0 +1,24 @@
+{
+  "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentParameters.json#",
+  "contentVersion": "1.0.0.0",
+  "parameters": {
+    "appServicePlanSku": {
+      "value": "B1"
+    },
+    "cosmosDbAccountName": {
+      "value": "<your-cosmosdb-account-name>"
+    },
+    "cosmosDbDatabaseName": {
+      "value": "blazorchat"
+    },
+    "aiFoundryEndpoint": {
+      "value": "<your-ai-foundry-endpoint>"
+    },
+    "applicationInsightsConnectionString": {
+      "value": "<your-app-insights-connection-string>"
+    },
+    "keyVaultUri": {
+      "value": "<your-keyvault-uri>"
+    }
+  }
+}

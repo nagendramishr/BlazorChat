@@ -1,0 +1,25 @@
+# yaml-language-server: $schema=https://raw.githubusercontent.com/Azure/azure-dev/main/schemas/v1.0/azure.yaml.json
+
+name: blazorchat
+metadata:
+  template: blazorchat@0.0.1
+
+services:
+  web:
+    project: ./src
+    language: dotnet
+    host: appservice
+    hooks:
+      predeploy:
+        windows:
+          shell: pwsh
+          run: |
+            dotnet publish ./src/src.csproj -c Release -o ./publish
+            Compress-Archive -Path ./publish/* -DestinationPath ./deploy.zip -Force
+          continueOnError: false
+        posix:
+          shell: sh
+          run: |
+            dotnet publish ./src/src.csproj -c Release -o ./publish
+            cd ./publish && zip -r ../deploy.zip . && cd ..
+          continueOnError: false

@@ -9,6 +9,8 @@ using src.Components;
 using src.Components.Account;
 using src.Data;
 using src.Services;
+using Microsoft.AspNetCore.Authorization;
+using src.Authorization;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -76,6 +78,15 @@ builder.Services.AddSingleton<IConversationContextManager, ConversationContextMa
 
 // Add Telemetry Service
 builder.Services.AddSingleton<ITelemetryService, TelemetryService>();
+
+// Add Authorization Handlers
+builder.Services.AddScoped<IAuthorizationHandler, ConversationAuthorizationHandler>();
+
+builder.Services.AddAuthorization(options =>
+{
+    options.AddPolicy("MustOwnConversation", policy =>
+        policy.Requirements.Add(new ConversationOwnerRequirement()));
+});
 
 var app = builder.Build();
 

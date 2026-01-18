@@ -7,6 +7,8 @@
 @inject IAIFoundryService AIFoundryService
 @inject IConversationContextManager ContextManager
 @inject ITelemetryService TelemetryService
+@inject IAuthorizationService AuthorizationService
+@inject AuthenticationStateProvider AuthenticationStateProvider
 @inject ISnackbar Snackbar
 @inject ILogger<Chat> _logger
 @rendermode InteractiveServer
@@ -252,9 +254,41 @@
 
     private async Task SelectConversation(string conversationId)
     {
-        currentConversationId = conversationId;
         var conversation = conversations?.FirstOrDefault(c => c.Id == conversationId);
-        currentConversationTitle = conversation?.Title ?? "Chat";
+
+        // If not found in local list (e.g. deep link), try to fetch it securely
+        if (conversation == null)
+        {
+            // The service method now performs a security check on userId
+            conversation = await CosmosDbService.GetConversationAsync(conversationId, currentUserId!);
+            
+            if (conversation == null)
+            {
+                Snackbar.Add("Conversation not found or you do not have permission to view it.", Severity.Error);
+                // Reset view if we were trying to load an invalid one
+                if (currentConversationId == conversationId) 
+                {
+                    currentConversationId = null;
+                    currentConversationTitle = "Chat";
+                    messages = new List<Message>();
+                }
+                return;
+            }
+        }
+
+        // Double-check with Authorization Service Policy
+        var authState = await AuthenticationStateProvider.GetAuthenticationStateAsync();
+        var authResult = await AuthorizationService.AuthorizeAsync(authState.User, conversation, "MustOwnConversation");
+
+        if (!authResult.Succeeded)
+        {
+            _logger.LogWarning("Authorization failed for user {UserId} on conversation {ConversationId}", currentUserId, conversationId);
+            Snackbar.Add("Access Denied.", Severity.Error);
+            return;
+        }
+
+        currentConversationId = conversationId;
+        currentConversationTitle = conversation.Title;
 
         // Load messages for this conversation
         await LoadMessages(conversationId);

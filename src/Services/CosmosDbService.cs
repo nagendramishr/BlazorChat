@@ -56,6 +56,15 @@ public class CosmosDbService : ICosmosDbService
                 new PartitionKey(conversationId));
 
             LogDiagnostics(response.Diagnostics, nameof(GetConversationAsync));
+            
+            // Security check: Ensure the requesting user owns the conversation
+            if (response.Resource.UserId != userId)
+            {
+                _logger.LogWarning("Security violation: User {UserId} attempted to access conversation {ConversationId} owned by {OwnerId}", 
+                    userId, conversationId, response.Resource.UserId);
+                return null;
+            }
+
             return response.Resource;
         }
         catch (CosmosException ex) when (ex.StatusCode == HttpStatusCode.NotFound)

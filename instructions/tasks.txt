@@ -57,11 +57,11 @@ NOTE: Skipped separate repository layer - using service directly is sufficient f
 ## PHASE 2: Security Updates
 NOTE: Current ASP.NET Core Identity with SQLite is sufficient for demo. Azure AD migration is planned for post-demo (see Phase 10).
 
-### Task 2.1: Implement Authorization Policies (Current Identity)
-- [ ] Create policy: UserCanAccessOwnConversations
-- [ ] Create authorization handler: src/Authorization/ConversationAuthorizationHandler.cs
-- [ ] Register policies in Program.cs
-- [ ] Apply [Authorize] attributes to endpoints/components
+### Task 2.1: Implement Authorization Policies (Current Identity) ✓
+- [x] Create policy: UserCanAccessOwnConversations
+- [x] Create authorization handler: src/Authorization/ConversationAuthorizationHandler.cs
+- [x] Register policies in Program.cs
+- [x] Apply [Authorize] attributes to endpoints/components
 
 ### Task 2.2: Configure CORS
 - [ ] Add CORS policy in Program.cs
@@ -87,6 +87,31 @@ NOTE: Current ASP.NET Core Identity with SQLite is sufficient for demo. Azure AD
 - [ ] Implement message sanitization service: src/Services/MessageSanitizationService.cs
 - [ ] Add validation attributes to input models
 - [ ] Register validation services in Program.cs
+
+## PHASE 2.5: Multi-Tenancy Architecture (New)
+Goal: Support multiple organizations (tenants) with isolated configuration and branding sharing the same db instance.
+
+### Task 2.5.1: Multi-Tenancy Database Schema
+- [ ] Create model: src/Models/Organization.cs
+  - Properties: Id, Name, Slug (Index), PublicThemeSettings, PrivateAIConfig
+  - Look & Feel: CustomCss (string), HeaderHtml (string), FooterHtml (string)
+  - NOTE: Split model into "OrganizationPublicDTO" (Theme/Branding) for UI and "OrganizationSecrets" for Server to prevent leaking AI keys via public URL probing.
+- [ ] Update model: src/Data/ApplicationUser.cs
+  - Add property: OrganizationId
+- [ ] Create container in Cosmos DB: "organizations"
+- [ ] Update CosmosDbService to manage Organizations
+
+### Task 2.5.2: Tenant Resolution Strategy
+- [ ] Create service: src/Services/TenantService.cs
+- [ ] Implement URL Route Parameter strategy (/chat/{tenantSlug}) to support easy navigation/guessing
+- [ ] Update Layout/App.razor to wrap content in a TenantResolver component
+- [ ] Ensure TenantService loads ONLY PublicThemeSettings for the frontend resolution
+- [ ] Update App.razor to handle tenant routing scenarios
+
+### Task 2.5.3: Organization Management (Admin)
+- [ ] Create page: src/Components/Pages/Admin/CreateOrganization.razor
+- [ ] Create page: src/Components/Pages/Admin/OrganizationList.razor
+- [ ] Implement basic CRUD for Organizations
 
 ## PHASE 3: Application Insights & Monitoring
 
@@ -139,6 +164,12 @@ NOTE: Current ASP.NET Core Identity with SQLite is sufficient for demo. Azure AD
 - [x] Register service in Program.cs
 - [x] Integrate with Chat.razor for streaming responses
 
+### Task 4.5: Multi-Tenant AI Configuration (New)
+- [ ] Refactor AIFoundryService to remove singleton config dependency
+- [ ] Implement dynamic agent configuration resolution based on current Tenant
+- [ ] Update AIFoundryService to accept TenantConfig/Organization settings per request
+- [ ] Test with multiple agent endpoints
+
 ### Task 4.3: Create Conversation Context Manager ✓
 - [x] Create service: src/Services/ConversationContextManager.cs
 - [x] Implement token counting
@@ -180,12 +211,13 @@ NOTE: Current ASP.NET Core Identity with SQLite is sufficient for demo. Azure AD
 - [x] Add GitHub-style formatting for code blocks, tables, lists, header
 - [ ] Add syntax highlighting for code blocks
 
-### Task 5.4: Add Loading States ✓
-- [x] Create component: src/Components/Shared/LoadingSkeleton.razor (integrated into Chat.razor)
-- [x] Create component: src/Components/Shared/LoadingSpinner.razor (using MudBlazor components)
-- [x] Integrate loading indicators in Chat components
-- [x] Add message sending indicator
-
+### Task 5.4: Tenant-Based Theming (Revised)
+- [ ] Update Organization model to include Custom CSS and HTML snippets support
+- [ ] Create service: src/Services/ThemeService.cs
+- [ ] Create component: src/Components/Shared/TenantStyleProvider.razor (renders raw <style> from Org.CustomCss)
+- [ ] Update MainLayout.razor to render Organization.HeaderHtml and FooterHtml (using MarkupString)
+- [ ] Create CSS variable injection based on tenant settings
+- [ ] Fallback to default theme if no tenant settings found
 ### Task 5.5: Implement Theme Customization
 - [ ] Create theme configuration in appsettings.json
 - [ ] Create CSS variables for theming in app.css
