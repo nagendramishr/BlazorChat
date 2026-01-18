@@ -1,0 +1,35 @@
+# BlazorChat Organization Portal Tasks
+
+## Current State Analysis
+- [ ] Project scaffold pending (src/portal)
+- [ ] Authentication Strategy definition pending
+
+## PHASE 1: Portal Foundation
+
+### Task P-1.1: Portal Project Setup
+- [ ] Create new project: src/portal/BlazorChat.Portal (Blazor WebAssembly)
+- [ ] Add NuGet package: Microsoft.AspNetCore.Components.WebAssembly
+- [ ] Add NuGet package: Microsoft.AspNetCore.Components.WebAssembly.Authentication
+- [ ] Configure reference to Shared Models (or create DTOs)
+
+### Task P-1.2: Authentication & Authorization
+- [ ] Configure OIDC Authentication (connect to same Identity Provider as Chat)
+- [ ] Implement Authorization Policies (Organization Admin access only)
+- [ ] Create Login/Logout pages
+
+## PHASE 2: Organization Self-Service
+
+### Task P-2.1: Organization Management UI
+- [ ] Create page: Profile/Settings
+- [ ] Implement form to update Organization Name/Details
+- [ ] Connect to Provisioning API for updates
+
+### Task P-2.2: Branding Management
+- [ ] Create Branding Editor Component (Colors, Logo)
+- [ ] Implement Live Context Preview
+- [ ] Store/Publish branding updates via API
+
+### Task P-2.3: User Management
+- [ ] Create User List Component
+- [ ] Implement Invite User flow
+- [ ] Implement Role Assignment (Admin vs Member)

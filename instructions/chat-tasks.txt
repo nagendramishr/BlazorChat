@@ -1,0 +1,436 @@
+# BlazorChat Implementation Tasks
+
+## Current State Analysis
+✓ .NET 10 Blazor web server with Kestrel configured
+✓ ASP.NET Core Identity with Individual authentication
+✓ Entity Framework Core with SQLite database
+✓ Basic authentication components (Account pages)
+✓ Dependency injection configured
+✓ Basic Blazor components structure (Layout, Pages)
+
+## PHASE 1: Data Layer Migration (Cosmos DB)
+
+### Task C1.1: Install Cosmos DB Dependencies ✓
+- [x] Add NuGet package: Microsoft.Azure.Cosmos (latest)
+- [x] Add NuGet package: Azure.Identity (for DefaultAzureCredential)
+- [ ] Remove/phase out: Microsoft.EntityFrameworkCore.Sqlite
+- [x] Update src.csproj file
+
+### Task C1.2: Create Cosmos DB Models and Schema ✓
+- [x] Create folder: src/Models
+- [x] Create model: src/Models/Conversation.cs
+  - Properties: Id, UserId, Title, CreatedAt, UpdatedAt, PartitionKey (UserId)
+- [x] Create model: src/Models/Message.cs
+  - Properties: Id, ConversationId, UserId, Content, Role (User/Assistant), Timestamp, Metadata
+- [x] Create model: src/Models/UserPreferences.cs
+  - Properties: UserId, Theme, NotificationSettings, etc.
+
+### Task C1.3: Create Cosmos DB Service Layer ✓
+- [x] Create interface: src/Services/ICosmosDbService.cs
+- [x] Create service: src/Services/CosmosDbService.cs
+  - Implement singleton pattern with CosmosClient
+  - Use DefaultAzureCredential for authentication
+  - Implement methods: GetConversationsAsync, GetMessagesAsync, SaveMessageAsync, etc.
+  - Enable diagnostic logging
+- [x] Create folder: src/Services
+- [x] Register service as singleton in Program.cs
+
+### Task C1.4: Update Configuration (Partial) ⚡
+- [x] Add Cosmos DB settings to appsettings.json:
+  - CosmosDb:Endpoint
+  - CosmosDb:DatabaseName
+  - CosmosDb:ConversationsContainerName
+  - CosmosDb:PreferencesContainerName
+- [x] Add environment-specific configs in appsettings.Development.json
+- [ ] Remove SQLite connection string
+
+### Task C1.5: Create Cosmos DB Repository Pattern
+- [x] ALTERNATIVE: Integrated CosmosDbService directly into Chat UI (simpler approach)
+- [x] Implemented conversation loading from Cosmos DB
+- [x] Implemented message loading with proper partition keys
+- [x] Implemented conversation creation and persistence
+- [x] Implemented message persistence (user and assistant)
+- [x] Added error handling and user notifications
+- [x] Added conversation auto-titling from first message
+NOTE: Skipped separate repository layer - using service directly is sufficient for this app
+
+## PHASE 2: Security Updates
+NOTE: Current ASP.NET Core Identity with SQLite is sufficient for demo. Azure AD migration is planned for post-demo (see Phase 10).
+
+### Task C2.1: Implement Authorization Policies (Current Identity) ✓
+- [x] Create policy: UserCanAccessOwnConversations
+- [x] Create authorization handler: src/Authorization/ConversationAuthorizationHandler.cs
+- [x] Register policies in Program.cs
+- [x] Apply [Authorize] attributes to endpoints/components
+
+### Task C2.2: Configure CORS
+- [ ] Add CORS policy in Program.cs
+- [ ] Configure allowed origins in appsettings.json
+- [ ] Apply CORS middleware
+
+### Task C2.3: Implement Rate Limiting
+- [ ] Add NuGet package: Microsoft.AspNetCore.RateLimiting
+- [ ] Configure rate limiting policies in Program.cs
+- [ ] Apply rate limiting to chat endpoints
+- [ ] Configure limits in appsettings.json
+
+### Task C2.4: Add Azure Key Vault Integration ✓
+- [x] Add NuGet package: Azure.Extensions.AspNetCore.Configuration.Secrets
+- [x] Add NuGet package: Azure.Security.KeyVault.Secrets
+- [x] Update Program.cs to add Key Vault configuration provider
+- [x] Configure Key Vault URL in appsettings.json
+- [x] Move sensitive settings (AI Foundry keys) to Key Vault (optional configuration)
+
+### Task C2.5: Input Validation & Sanitization
+- [ ] Add NuGet package: System.ComponentModel.Annotations
+- [ ] Create validation models for chat input
+- [ ] Implement message sanitization service: src/Services/MessageSanitizationService.cs
+- [ ] Add validation attributes to input models
+- [ ] Register validation services in Program.cs
+
+## PHASE 2.5: Multi-Organization Architecture (New)
+Goal: Support multiple organizations with isolated configuration and branding sharing the same db instance.
+
+### Task C2.5.1: Multi-Organization Database Schema ✓
+- [x] Create model: src/Models/Organization.cs
+  - Properties: Id, Name, Slug (Index), PublicThemeSettings, PrivateAIConfig
+  - Look & Feel: CustomCss (string), HeaderHtml (string), FooterHtml (string)
+  - NOTE: Split model into "OrganizationPublicDTO" (Theme/Branding) for UI and "OrganizationSecrets" for Server to prevent leaking AI keys via public URL probing.
+- [x] Update model: src/Data/ApplicationUser.cs
+  - Add property: OrganizationId
+
+### Task C2.5.2: Organization Resolution Strategy ✓
+- [x] Implement Organization Service: src/Services/OrganizationService.cs
+- [x] Update routing to support `/org/{slug}/...`
+- [x] Create Organization Resolver Component: src/Components/Shared/OrganizationResolver.razor
+- [x] Validate Slug Uniqueness on creation.
+
+### Task C2.5.3: Organization Management API Service (New) ✓
+- [x] Create interface: src/Services/IOrganizationAdminService.cs
+- [x] Implement service: src/Services/OrganizationAdminService.cs
+  - Methods: CreateOrganizationAsync, UpdateOrganizationAsync, DisableOrganizationAsync, ListOrganizationsAsync
+- [x] Create API Endpoints or Admin Page to manage organizations.
+  - Implemented `src/Controllers/OrganizationController.cs`
+- [ ] Create Admin Policy: Require "GlobalAdmin" role.
+- [ ] Create Admin UI Pages (optional for now, API first).
+
+### Task C2.5.4: Infrastructure Automation ✓
+- [x] Create Azure CLI setup script: scripts/init-azure-resources.ps1 (and .sh)
+- [x] Verify script creates all containers including `organizations`.
+- [x] Update CosmosDbService to manage Organizations container logic.
+
+### Task C2.5.5: UI Configuration Updates ✓
+- [x] Update MainLayout to support dynamic branding colors (MudBlazor).
+- [x] Add Organization Awareness to NavMenu.
+- [x] Fix MudBlazor provider duplication issues in interactive rendering.
+- [ ] Create page: src/Components/Pages/Admin/OrganizationList.razor
+- [ ] Implement basic CRUD for Organizations
+
+## PHASE 3: Application Insights & Monitoring
+
+### Task C3.1: Add Application Insights ✓
+- [x] Add NuGet package: Microsoft.ApplicationInsights.AspNetCore
+- [x] Add Application Insights to Program.cs
+- [x] Configure instrumentation key in appsettings.json
+- [x] Enable connection string in appsettings (use Key Vault)
+
+### Task C3.2: Add Custom Telemetry ✓
+- [x] Create service: src/Services/TelemetryService.cs
+- [x] Add custom events: MessageSent, MessageReceived, AIResponseTime
+- [x] Add custom metrics: ConversationLength, TokenUsage, ResponseLatency
+- [x] Track exceptions with custom properties
+- [x] Register service in Program.cs
+
+### Task C3.3: Add Health Checks
+- [ ] Add NuGet package: Microsoft.Extensions.Diagnostics.HealthChecks
+- [ ] Create health check: src/HealthChecks/CosmosDbHealthCheck.cs
+- [ ] Create health check: src/HealthChecks/AIFoundryHealthCheck.cs
+- [ ] Add health check endpoints in Program.cs (/health, /health/ready)
+- [ ] Configure health check UI (optional)
+
+### Task C3.4: Cosmos DB Diagnostic Logging ✓
+- [x] Enable Cosmos DB diagnostics in CosmosDbService
+- [x] Log diagnostic strings for slow queries (> threshold)
+- [x] Log diagnostic strings on errors
+- [ ] Add custom log filtering in appsettings.json
+
+## PHASE 4: AI Foundry Integration
+
+### Task C4.1: Add AI Foundry SDK ✓
+- [x] Add NuGet package: Azure.AI.Projects
+- [x] Add NuGet package: Microsoft.Agents.AI.AzureAI
+- [x] Add configuration in appsettings.json:
+  - AIFoundry:Endpoint
+  - AIFoundry:ModelDeployment
+  - AIFoundry:AgentName
+  - AIFoundry:AgentInstructions
+- [ ] Store API keys in Key Vault (user will provide endpoint details)
+
+### Task C4.2: Create AI Service Layer ✓
+- [x] Create interface: src/Services/IAIFoundryService.cs
+- [x] Create service: src/Services/AIFoundryService.cs
+  - Implement agent communication with Microsoft Agent Framework
+  - Implement streaming response support
+  - Implement error handling and thread management
+  - Implement conversation context via AgentThread
+  - Use DefaultAzureCredential
+- [x] Register service in Program.cs
+- [x] Integrate with Chat.razor for streaming responses
+
+### Task C4.5: Multi-Organization AI Configuration (New)
+- [ ] Refactor AIFoundryService to remove singleton config dependency
+- [ ] Implement dynamic agent configuration resolution based on current Organization
+- [ ] Update AIFoundryService to accept OrganizationConfig settings per request
+- [ ] Test with multiple agent endpoints
+
+### Task C4.3: Create Conversation Context Manager ✓
+- [x] Create service: src/Services/ConversationContextManager.cs
+- [x] Implement token counting
+- [x] Implement context trimming strategy
+- [x] Implement conversation summarization stub
+- [x] Register service in Program.cs
+- [x] Integrate into Chat.razor for token limit checking
+
+### Task C4.4: Add Usage Tracking
+- [ ] Create model: src/Models/AIUsage.cs
+- [ ] Track tokens used per conversation
+- [ ] Track API calls and costs
+- [ ] Log to Application Insights
+- [ ] Persist to Cosmos DB (optional analytics container)
+
+## PHASE 5: Chat UI Components
+
+### Task C5.1: Add Chat Component Library ✓
+- [x] Research and select Blazor chat UI library (e.g., MudBlazor, FluentUI)
+- [x] Add NuGet package for selected library
+- [x] Configure library in Program.cs
+- [x] Update _Imports.razor with library namespaces
+
+### Task C5.2: Create Chat Components ✓
+- [x] Create component: src/Components/Pages/Chat.razor
+  - Display conversation list
+  - Display message history
+  - Input box for new messages
+  - Send button
+- [x] Create component: src/Components/Chat/MessageList.razor
+- [x] Create component: src/Components/Chat/MessageItem.razor
+- [x] Create component: src/Components/Chat/ChatInput.razor
+- [x] Create component: src/Components/Chat/ConversationSidebar.razor
+ ✓
+- [x] Add NuGet package: Markdig (0.44.0)
+- [x] Create component: src/Components/Shared/MarkdownRenderer.razor
+- [x] Create styles: src/Components/Shared/MarkdownRenderer.razor.css
+- [x] Integrate into Chat.razor for AI message rendering
+- [x] Add GitHub-style formatting for code blocks, tables, lists, header
+- [ ] Add syntax highlighting for code blocks
+
+### Task C5.4: Organization-Based Theming (Revised)
+- [ ] Update Organization model to include Custom CSS and HTML snippets support
+- [ ] Create service: src/Services/ThemeService.cs
+- [ ] Create component: src/Components/Shared/OrganizationStyleProvider.razor (renders raw <style> from Org.CustomCss)
+- [ ] Update MainLayout.razor to render Organization.HeaderHtml and FooterHtml (using MarkupString)
+- [ ] Create CSS variable injection based on organization settings
+- [ ] Fallback to default theme if no organization settings found
+### Task C5.5: Implement Theme Customization
+- [ ] Create theme configuration in appsettings.json
+- [ ] Create CSS variables for theming in app.css
+- [ ] Create service: src/Services/ThemeService.cs
+- [ ] Add theme selector in UI
+- [ ] Persist user preference to Cosmos DB
+
+## PHASE 6: Real-time Features (SignalR)
+
+### Task C6.1: Add SignalR Infrastructure
+- [ ] Add NuGet package: Microsoft.AspNetCore.SignalR (already in .NET)
+- [ ] Create hub: src/Hubs/ChatHub.cs
+- [ ] Register SignalR in Program.cs
+- [ ] Map hub endpoint
+
+### Task C6.2: Implement Streaming Responses
+- [ ] Add streaming methods to ChatHub
+- [ ] Update AIFoundryService to support streaming
+- [ ] Update Chat.razor to receive streaming messages
+- [ ] Implement progressive message rendering
+
+### Task C6.3: Add Typing Indicators
+- [ ] Add typing indicator methods to ChatHub
+- [ ] Create component: src/Components/Chat/TypingIndicator.razor
+- [ ] Implement typing event emission from ChatInput
+- [ ] Display typing indicators in MessageList
+
+### Task C6.4: Connection State Management
+- [ ] Implement reconnection logic in Chat.razor
+- [ ] Add connection status indicator component
+- [ ] Handle offline scenarios gracefully
+- [ ] Show connection state to user
+
+## PHASE 7: Additional Features
+
+### Task C7.1: Implement Caching
+- [ ] Add memory cache for conversation metadata
+- [ ] Implement cache invalidation strategy
+- [ ] Add cache configuration in appsettings.json
+- [ ] Register cache in Program.cs
+
+### Task C7.2: Add Search Functionality
+- [ ] Create search endpoint/method in ConversationRepository
+- [ ] Implement full-text search (consider Azure Cognitive Search)
+- [ ] Create search UI component
+- [ ] Add search results highlighting
+
+### Task C7.3: Add Export Functionality
+- [ ] Create service: src/Services/ExportService.cs
+- [ ] Implement export to JSON
+- [ ] Implement export to Markdown
+- [ ] Add export button to conversation UI
+- [ ] Generate downloadable files
+
+### Task C7.4: User Preferences
+- [ ] Create UserPreferences repository
+- [ ] Create preferences UI page
+- [ ] Implement save/load preferences
+- [ ] Apply preferences across app (theme, notifications, etc.)
+
+### Task C7.5: File Upload (Optional)
+- [ ] Add file upload component
+- [ ] Configure Azure Blob Storage
+- [ ] Add NuGet package: Azure.Storage.Blobs
+- [ ] Implement file upload service
+- [ ] Store file references in Cosmos DB
+
+## PHASE 8: Testing & Quality
+
+### Task C8.1: Unit Tests
+- [ ] Add test project: BlazorChat.Tests
+- [ ] Add NuGet package: xUnit
+- [ ] Add NuGet package: Moq
+- [ ] Write tests for CosmosDbService
+- [ ] Write tests for AIFoundryService
+- [ ] Write tests for ConversationRepository
+- [ ] Write tests for authorization handlers
+
+### Task C8.2: Integration Tests
+- [ ] Add test project: BlazorChat.IntegrationTests
+- [ ] Add NuGet package: Microsoft.AspNetCore.Mvc.Testing
+- [ ] Write integration tests for API endpoints
+- [ ] Test authentication flows
+- [ ] Test Cosmos DB integration with emulator
+
+### Task C8.3: Add Swagger/OpenAPI
+- [ ] Add NuGet package: Swashbuckle.AspNetCore
+- [ ] Configure Swagger in Program.cs
+- [ ] Add XML documentation to API methods
+- [ ] Configure Swagger UI
+
+## PHASE 9: DevOps & Deployment
+
+### Task C9.1: Docker Support
+- [ ] Create Dockerfile in project root
+- [ ] Create .dockerignore file
+- [ ] Test local Docker build
+- [ ] Optimize image size (multi-stage build)
+
+### Task C9.2: Environment Configuration
+- [ ] Finalize appsettings.Production.json
+- [ ] Document required environment variables
+- [ ] Add configuration validation on startup
+- [ ] Create configuration README
+
+### Task C9.3: CI/CD Pipeline
+- [ ] Create .github/workflows/build.yml (or Azure DevOps YAML)
+- [ ] Add build and test steps
+- [ ] Add Docker build and push steps
+- [ ] Add deployment steps for Azure App Service or ACA
+- [ ] Configure environment secrets
+
+### Task C9.4: Azure Resources Setup
+- [ ] Create Bicep/Terraform templates in /deploy
+- [ ] Define Cosmos DB account and database
+- [ ] Define App Service or Azure Container Apps
+- [ ] Define Application Insights
+- [ ] Define Key Vault
+- [ ] Document deployment steps
+
+## PHASE 10: Enterprise Authentication (Post-Demo)
+NOTE: This phase is for enterprise deployments. Demo uses ASP.NET Core Identity with SQLite.
+
+### Task C10.1: Migrate to Azure AD Authentication
+- [ ] Replace ASP.NET Core Identity with Azure AD (Microsoft Entra ID)
+- [ ] Add NuGet package: Microsoft.Identity.Web
+- [ ] Add NuGet package: Microsoft.Identity.Web.UI
+- [ ] Update Program.cs to use AddMicrosoftIdentityWebApp
+- [ ] Configure Azure AD settings in appsettings.json:
+  - AzureAd:Instance
+  - AzureAd:Domain
+  - AzureAd:TenantId
+  - AzureAd:ClientId
+- [ ] Remove Entity Framework Identity dependencies
+- [ ] Plan user data migration from SQLite to Azure AD
+- [ ] Update authorization policies to work with Azure AD claims
+- [ ] Test SSO and multi-factor authentication flows
+
+## PHASE 11: Compliance & Governance
+
+### Task C11.1: Data Retention
+- [ ] Define retention policies
+- [ ] Create cleanup service: src/Services/DataRetentionService.cs
+- [ ] Implement background job for old data deletion
+- [ ] Configure TTL in Cosmos DB (optional)
+
+### Task C11.2: GDPR Compliance
+- [ ] Add export user data endpoint
+- [ ] Add delete user data endpoint (right to be forgotten)
+- [ ] Create privacy policy page
+- [ ] Add consent management
+
+### Task C11.3: Audit Logging
+- [ ] Create audit log model
+- [ ] Log sensitive operations (delete, export, admin actions)
+- [ ] Store audit logs in separate Cosmos DB container
+- [ ] Create audit log query endpoint (admin only)
+
+## PRIORITY ORDER
+
+### Immediate (MVP - Week 1-2)
+1. Task C1.1 - C1.5: Cosmos DB Migration
+2. Task C.4.1 - C4.2: Basic AI Foundry Integration
+3. Task C.5.1 - C5.2: Basic Chat UI
+4. Task C.3.1: Application Insights Setup
+
+### High Priority (Week 3-4)
+5. Task C2.4: Key Vault Integration
+7. Task C5.3 - C5.4: Markdown & Loading States
+8. Task C3.2 - C3.4: Monitoring & Health Checks
+9. Task C4.3: Context Management
+
+### Medium Priority (Week 5-6)
+10. Task C2.3 - C2.4: CORS & Rate Limiting
+11. Task C2.6: Input Validation
+12. Task C6.1 - C6.2: SignalR & Streaming
+13. Task C5.5: Theme Customization
+14. Task C7.1: Caching
+
+### Lower Priority (Week 7-8)
+15. Task C6.3 - C6.4: Advanced SignalR Features
+16. Task C7.2 - C7.4: Search, Export, Preferences
+17. Task C8.1 - C8.2: Testing
+18. Task C9.1 - C9.2: Docker & Configuration
+
+### Future Enhancements
+19. Task 4.4: AI Usage Tracking
+20. Task 7.5: File Upload
+21. Task 8.3: Swagger
+22. Task 9.3-9.4: CI/CD & IaC
+
+### Post-Demo Enterprise Features
+23. Task 10.1: Azure AD Authentication Migration (Enterprise SSO)
+24. Task 11.1-11.3: Compliance Features (Data Retention, GDPR, Audit Logging)
+
+## NOTES
+- Many tasks can be parallelized within phases
+- Current authentication uses ASP.NET Core Identity with SQLite (sufficient for demo)
+- Service authentication uses DefaultAzureCredential (already working for Cosmos DB)
+- Azure AD migration (Task 10.1) is optional for enterprise deployments and requires data migration planning
+- SignalR features (Phase 6) can be added incrementally
+- Testing should be done continuously, not just in Phase 8
+- Infrastructure as Code should be created alongside development

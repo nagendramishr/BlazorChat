@@ -69,7 +69,7 @@ Priority: MEDIUM - Nice to have
 ## Phase 6: Scalability & Optimization
 Priority: LOW - Future improvements
 
-46. Consider hierarchical partition keys (HPK) for multi-tenant
+46. Consider hierarchical partition keys (HPK) for multi-organization
 47. Optimize query patterns and performance
 48. Review and optimize async patterns
 49. Performance testing and tuning

@@ -19,6 +19,13 @@
     
     <MudDivider Class="my-2" />
 
+    <AuthorizeView Policy="GlobalAdmin">
+         <Authorized>
+             <MudNavLink Href="admin/organizations" Icon="@Icons.Material.Filled.AdminPanelSettings">Admin Console</MudNavLink>
+             <MudDivider Class="my-2" />
+         </Authorized>
+    </AuthorizeView>
+
     <AuthorizeView>
         <Authorized>
             <MudNavLink Href="Account/Manage" Icon="@Icons.Material.Filled.Person">@context.User.Identity?.Name</MudNavLink>

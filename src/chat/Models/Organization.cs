@@ -57,4 +57,7 @@ public class AIConfig
 
     [JsonPropertyName("agentInstructions")]
     public string? AgentInstructions { get; set; }
+
+    [JsonPropertyName("systemPrompt")]
+    public string? SystemPrompt { get; set; }
 }

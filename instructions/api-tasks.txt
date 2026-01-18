@@ -1,0 +1,29 @@
+# BlazorChat Provisioning API Tasks
+
+## Current State Analysis
+- [x] Project scaffold created (src/api)
+- [ ] Shared dependencies identification pending
+
+## PHASE 1: API Foundation
+
+### Task A-1.1: Azure Function Project Setup ✓
+- [x] Create new project: src/api (Azure Functions Isolated Worker)
+- [x] Configure extension bundle in host.json (Microsoft.Azure.Functions.ExtensionBundle)
+- [ ] Configure Cosmos DB Input/Output bindings (or use CosmosClient for complex logic)
+- [ ] Configure Function Access Keys for authorization
+- [ ] Add Open API extensions (optional)
+
+## PHASE 2: Organization Management Functions
+
+### Task A-2.1: Organization Management Functions ✓
+- [x] Create HttpTrigger: CreateOrganization (POST /organizations)
+- [x] Create HttpTrigger: UpdateOrganizationStatus (PATCH /organizations/{id}/status)
+- [x] Create HttpTrigger: UpdateOrganizationConfig (PUT /organizations/{id})
+- [x] Create HttpTrigger: GetOrganizations (GET /organizations)
+
+## PHASE 3: Infrastructure & Deployment
+
+### Task A-3.1: Deployment Configuration
+- [ ] Create Bicep for Azure Function App
+- [ ] Configure Managed Identity for Cosmos DB access
+- [ ] Configure Application Insights

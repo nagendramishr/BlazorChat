@@ -62,6 +62,7 @@ builder.Services.AddIdentityCore<ApplicationUser>(options =>
         options.SignIn.RequireConfirmedAccount = true;
         options.Stores.SchemaVersion = IdentitySchemaVersions.Version3;
     })
+    .AddRoles<IdentityRole>()
     .AddEntityFrameworkStores<ApplicationDbContext>()
     .AddSignInManager()
     .AddDefaultTokenProviders();
@@ -93,6 +94,9 @@ builder.Services.AddAuthorization(options =>
 {
     options.AddPolicy("MustOwnConversation", policy =>
         policy.Requirements.Add(new ConversationOwnerRequirement()));
+
+    options.AddPolicy("GlobalAdmin", policy => 
+        policy.RequireRole("GlobalAdmin"));
 });
 
 var app = builder.Build();
