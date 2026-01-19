@@ -84,11 +84,11 @@ builder.Services.AddSingleton<ITelemetryService, TelemetryService>();
 // Add Authorization Handlers
 builder.Services.AddScoped<IAuthorizationHandler, ConversationAuthorizationHandler>();
 
-// Add Tenant Service (Scoped because it holds per-request state)
-builder.Services.AddScoped<ITenantService, TenantService>();
+// Add Organization Service (Scoped because it holds per-request state)
+builder.Services.AddScoped<IOrganizationService, OrganizationService>();
 
-// Add Tenant Admin Service (Scoped)
-builder.Services.AddScoped<ITenantAdminService, TenantAdminService>();
+// Add Organization Admin Service (Scoped)
+builder.Services.AddScoped<IOrganizationAdminService, OrganizationAdminService>();
 
 builder.Services.AddAuthorization(options =>
 {

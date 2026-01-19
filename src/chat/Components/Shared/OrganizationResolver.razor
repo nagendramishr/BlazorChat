@@ -1,7 +1,7 @@
 @using src.Services
-@inject ITenantService TenantService
+@inject IOrganizationService OrganizationService
 @inject NavigationManager Navigation
-@inject ILogger<TenantResolver> Logger
+@inject ILogger<OrganizationResolver> Logger
 
 @if (IsResolving)
 {
@@ -24,7 +24,7 @@ else if (HasError)
 else
 {
     @* Render the actual page content *@
-    <CascadingValue Value="@TenantService.CurrentTenant" Name="CurrentTenant">
+    <CascadingValue Value="@OrganizationService.CurrentOrganization" Name="CurrentOrganization">
         @ChildContent
     </CascadingValue>
 }
@@ -34,7 +34,7 @@ else
     public RenderFragment? ChildContent { get; set; }
 
     [Parameter]
-    public string? TenantSlug { get; set; }
+    public string? OrganizationSlug { get; set; }
 
     private bool IsResolving = true;
     private bool HasError = false;
@@ -47,16 +47,16 @@ else
 
         try
         {
-            if (string.IsNullOrEmpty(TenantSlug))
+            if (string.IsNullOrEmpty(OrganizationSlug))
             {
-                // No tenant in URL (e.g. home page), proceed without tenant
+                // No organization in URL (e.g. home page), proceed without organization
                 IsResolving = false;
                 return;
             }
 
-            Logger.LogInformation("TenantResolver: Resolving slug '{Slug}'", TenantSlug);
+            Logger.LogInformation("OrganizationResolver: Resolving slug '{Slug}'", OrganizationSlug);
             
-            var found = await TenantService.LoadTenantAsync(TenantSlug);
+            var found = await OrganizationService.LoadOrganizationAsync(OrganizationSlug);
             
             if (!found)
             {
@@ -65,7 +65,7 @@ else
         }
         catch (Exception ex)
         {
-            Logger.LogError(ex, "Failed to resolve tenant");
+            Logger.LogError(ex, "Failed to resolve organization");
             HasError = true;
         }
         finally

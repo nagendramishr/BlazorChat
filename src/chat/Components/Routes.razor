@@ -5,15 +5,15 @@
 <Router AppAssembly="typeof(Program).Assembly" NotFoundPage="typeof(Pages.NotFound)">
     <Found Context="routeData">
         @{
-            var tenantSlug = routeData.RouteValues.TryGetValue("TenantSlug", out var slug) ? slug?.ToString() : null;
+            var orgSlug = routeData.RouteValues.TryGetValue("OrganizationSlug", out var slug) ? slug?.ToString() : null;
         }
-        <TenantResolver TenantSlug="@tenantSlug">
+        <OrganizationResolver OrganizationSlug="@orgSlug">
             <AuthorizeRouteView RouteData="routeData" DefaultLayout="typeof(Layout.MainLayout)">
                 <NotAuthorized>
                     <RedirectToLogin />
                 </NotAuthorized>
             </AuthorizeRouteView>
             <FocusOnNavigate RouteData="routeData" Selector="h1" />
-        </TenantResolver>
+        </OrganizationResolver>
     </Found>
 </Router>

@@ -1,4 +1,6 @@
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.Authorization;
 using src.Models;
 using src.Services;
 
@@ -6,12 +8,13 @@ namespace src.Controllers;
 
 [ApiController]
 [Route("api/[controller]")]
-public class TenantController : ControllerBase
+[Authorize(Policy = "GlobalAdmin")]
+public class OrganizationController : ControllerBase
 {
-    private readonly ITenantAdminService _adminService;
-    private readonly ILogger<TenantController> _logger;
+    private readonly IOrganizationAdminService _adminService;
+    private readonly ILogger<OrganizationController> _logger;
 
-    public TenantController(ITenantAdminService adminService, ILogger<TenantController> logger)
+    public OrganizationController(IOrganizationAdminService adminService, ILogger<OrganizationController> logger)
     {
         _adminService = adminService;
         _logger = logger;
@@ -39,10 +42,6 @@ public class TenantController : ControllerBase
     [HttpGet("{id}")]
     public async Task<ActionResult<Organization>> GetOrganization(string id)
     {
-        // We need a Get method in Admin Service or use List and filter
-        // For now, let's use List to avoid changing interface too much, or direct Cosmos usage?
-        // AdminService should probably expose Get.
-        // But for now, let's implement List.
         var orgs = await _adminService.ListOrganizationsAsync();
         var org = orgs.FirstOrDefault(o => o.Id == id);
         if (org == null) return NotFound();

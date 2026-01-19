@@ -2,7 +2,7 @@ using src.Models;
 
 namespace src.Services;
 
-public interface ITenantAdminService
+public interface IOrganizationAdminService
 {
     Task<Organization> OnboardOrganizationAsync(Organization organization);
     Task<Organization> UpdateOrganizationAsync(string id, Organization organization);

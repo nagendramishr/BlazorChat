@@ -3,12 +3,12 @@ using Microsoft.Extensions.Logging;
 
 namespace src.Services;
 
-public class TenantAdminService : ITenantAdminService
+public class OrganizationAdminService : IOrganizationAdminService
 {
     private readonly ICosmosDbService _cosmosDbService;
-    private readonly ILogger<TenantAdminService> _logger;
+    private readonly ILogger<OrganizationAdminService> _logger;
 
-    public TenantAdminService(ICosmosDbService cosmosDbService, ILogger<TenantAdminService> logger)
+    public OrganizationAdminService(ICosmosDbService cosmosDbService, ILogger<OrganizationAdminService> logger)
     {
         _cosmosDbService = cosmosDbService;
         _logger = logger;

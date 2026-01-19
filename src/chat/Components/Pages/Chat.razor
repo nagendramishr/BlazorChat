@@ -1,7 +1,7 @@
 @page "/chat"
 @page "/chat/{ConversationId}"
-@page "/org/{TenantSlug}/chat"
-@page "/org/{TenantSlug}/chat/{ConversationId}"
+@page "/org/{OrganizationSlug}/chat"
+@page "/org/{OrganizationSlug}/chat/{ConversationId}"
 @rendermode @(new InteractiveServerRenderMode(prerender: false))
 @using Microsoft.AspNetCore.Authorization
 @using src.Models
@@ -173,7 +173,7 @@
     public string? ConversationId { get; set; }
 
     [Parameter]
-    public string? TenantSlug { get; set; }
+    public string? OrganizationSlug { get; set; }
 
     [CascadingParameter]
     private Task<AuthenticationState>? AuthenticationStateTask { get; set; }

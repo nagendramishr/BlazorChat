@@ -1,14 +1,14 @@
 ﻿@using src.Services
-@inject ITenantService TenantService
+@inject IOrganizationService OrganizationService
 @inject NavigationManager Navigation
 @using MudBlazor
 
 <MudNavMenu>
     <MudNavLink Href="" Match="NavLinkMatch.All" Icon="@Icons.Material.Filled.Home">Home</MudNavLink>
     
-    @if (TenantService.CurrentTenant != null)
+    @if (OrganizationService.CurrentOrganization != null)
     {
-         <MudNavLink Href="@($"/org/{TenantService.CurrentTenant.Slug}/chat")" Icon="@Icons.Material.Filled.Chat">Chat (@TenantService.CurrentTenant.Name)</MudNavLink>
+         <MudNavLink Href="@($"/org/{OrganizationService.CurrentOrganization.Slug}/chat")" Icon="@Icons.Material.Filled.Chat">Chat (@OrganizationService.CurrentOrganization.Name)</MudNavLink>
     }
     else 
     {

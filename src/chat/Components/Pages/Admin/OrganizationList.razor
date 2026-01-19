@@ -4,19 +4,22 @@
 @using Microsoft.AspNetCore.Authorization
 @attribute [Authorize(Policy = "GlobalAdmin")]
 @rendermode @(new InteractiveServerRenderMode(prerender: false))
-@inject ITenantAdminService TenantAdminService
+@inject IOrganizationAdminService OrganizationAdminService
 @inject IDialogService DialogService
 @inject ISnackbar Snackbar
+@using src.Components.Shared
+
+<RequiredMudProviders />
 
 <PageTitle>Organization Management</PageTitle>
 
 <MudContainer MaxWidth="MaxWidth.ExtraLarge" Class="mt-8">
     <MudText Typo="Typo.h4" GutterBottom="true">Organizations</MudText>
-    <MudText Typo="Typo.subtitle1" Class="mb-4">Manage multi-tenant chat configurations.</MudText>
+    <MudText Typo="Typo.subtitle1" Class="mb-4">Manage multi-organization chat configurations.</MudText>
 
     <MudTable Items="@organizations" Dense="true" Hover="true" Bordered="true" Striped="true" Filter="new Func<Organization,bool>(FilterFunc1)" @bind-SelectedItem="selectedItem1">
         <ToolBarContent>
-            <MudText Typo="Typo.h6">Tenants</MudText>
+            <MudText Typo="Typo.h6">Organizations</MudText>
             <MudSpacer />
             <MudTextField @bind-Value="searchString1" Placeholder="Search" Adornment="Adornment.Start" AdornmentIcon="@Icons.Material.Filled.Search" IconSize="Size.Medium" Class="mt-0"></MudTextField>
             <MudButton Variant="Variant.Filled" Color="Color.Primary" StartIcon="@Icons.Material.Filled.Add" OnClick="OpenCreateDialog" Class="ml-4">Create New</MudButton>
@@ -50,11 +53,15 @@
                 <MudIconButton Icon="@Icons.Material.Filled.Edit" Color="Color.Primary" OnClick="@(() => OpenEditDialog(context))" Size="Size.Small" />
                 @if (!context.IsDisabled)
                 {
-                     <MudIconButton Icon="@Icons.Material.Filled.Block" Color="Color.Warning" OnClick="@(() => ToggleStatus(context))" Size="Size.Small" Title="Disable" />
+                     <MudTooltip Text="Disable">
+                        <MudIconButton Icon="@Icons.Material.Filled.Block" Color="Color.Warning" OnClick="@(() => ToggleStatus(context))" Size="Size.Small" />
+                     </MudTooltip>
                 }
                 else 
                 {
-                     <MudIconButton Icon="@Icons.Material.Filled.CheckCircle" Color="Color.Success" OnClick="@(() => ToggleStatus(context))" Size="Size.Small" Title="Enable" />
+                     <MudTooltip Text="Enable">
+                        <MudIconButton Icon="@Icons.Material.Filled.CheckCircle" Color="Color.Success" OnClick="@(() => ToggleStatus(context))" Size="Size.Small" />
+                     </MudTooltip>
                 }
             </MudTd>
         </RowTemplate>
@@ -67,7 +74,7 @@
 @code {
     private IEnumerable<Organization> organizations = new List<Organization>();
     private string searchString1 = "";
-    private Organization selectedItem1 = null;
+    private Organization? selectedItem1 = null;
 
     protected override async Task OnInitializedAsync()
     {
@@ -76,7 +83,7 @@
 
     private async Task LoadData()
     {
-        organizations = await TenantAdminService.ListOrganizationsAsync();
+        organizations = await OrganizationAdminService.ListOrganizationsAsync();
     }
 
     private bool FilterFunc1(Organization element) => FilterFunc(element, searchString1);
@@ -105,7 +112,7 @@
             {
                 try 
                 {
-                    await TenantAdminService.OnboardOrganizationAsync(newOrg);
+                    await OrganizationAdminService.OnboardOrganizationAsync(newOrg);
                     Snackbar.Add("Organization created!", Severity.Success);
                     await LoadData();
                 } 
@@ -131,14 +138,14 @@
             {
                 try 
                 {
-                    await TenantAdminService.UpdateOrganizationAsync(updatedOrg.Id, updatedOrg);
+                    await OrganizationAdminService.UpdateOrganizationAsync(updatedOrg.Id, updatedOrg);
                     Snackbar.Add("Organization updated!", Severity.Success);
-                await LoadData();
-            } 
-            catch (Exception ex) 
-            {
-                Snackbar.Add($"Error: {ex.Message}", Severity.Error);
-            }
+                    await LoadData();
+                } 
+                catch (Exception ex) 
+                {
+                    Snackbar.Add($"Error: {ex.Message}", Severity.Error);
+                }
             }
         }
     }
@@ -148,11 +155,12 @@
         try 
         {
             if (org.IsDisabled)
-                await TenantAdminService.EnableOrganizationAsync(org.Id);
+                await OrganizationAdminService.EnableOrganizationAsync(org.Id);
             else
-                await TenantAdminService.DisableOrganizationAsync(org.Id);
+                await OrganizationAdminService.DisableOrganizationAsync(org.Id);
             
             await LoadData();
+            Snackbar.Add($"Organization {(org.IsDisabled ? "enabled" : "disabled")}!", Severity.Success);
         } 
         catch (Exception ex) 
         {

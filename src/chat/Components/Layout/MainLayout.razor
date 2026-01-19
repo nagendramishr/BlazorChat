@@ -1,5 +1,5 @@
 ﻿@inherits LayoutComponentBase
-@inject src.Services.ITenantService TenantService
+@inject src.Services.IOrganizationService OrganizationService
 @inject NavigationManager Navigation
 @using MudBlazor
 
@@ -14,7 +14,7 @@
         
         @if (HasCustomHeader)
         {
-             @((MarkupString)(TenantService.CurrentTenant?.PublicThemeSettings?.HeaderHtml ?? ""))
+             @((MarkupString)(OrganizationService.CurrentOrganization?.PublicThemeSettings?.HeaderHtml ?? ""))
         }
         else 
         {
@@ -43,10 +43,10 @@
             @Body
         </MudContainer>
         
-        @if (!string.IsNullOrEmpty(TenantService.CurrentTenant?.PublicThemeSettings?.FooterHtml))
+        @if (!string.IsNullOrEmpty(OrganizationService.CurrentOrganization?.PublicThemeSettings?.FooterHtml))
         {
              <div class="mt-4">
-                 @((MarkupString)TenantService.CurrentTenant.PublicThemeSettings.FooterHtml)
+                 @((MarkupString)OrganizationService.CurrentOrganization.PublicThemeSettings.FooterHtml)
              </div>
         }
     </MudMainContent>
@@ -56,8 +56,8 @@
     bool _drawerOpen = true;
     private MudTheme _currentTheme = new MudTheme();
 
-    [CascadingParameter(Name = "CurrentTenant")]
-    public src.Models.Organization? CurrentTenant { get; set; }
+    [CascadingParameter(Name = "CurrentOrganization")]
+    public src.Models.Organization? CurrentOrganization { get; set; }
 
     protected override void OnInitialized()
     {
@@ -72,17 +72,17 @@
     private void UpdateTheme()
     {
         // Prioritize Cascading Parameter, fall back to Service (which should be same)
-        var tenant = CurrentTenant ?? TenantService.CurrentTenant;
+        var org = CurrentOrganization ?? OrganizationService.CurrentOrganization;
 
-        if (tenant != null)
+        if (org != null)
         {
             _currentTheme = new MudTheme()
             {
                 PaletteLight = new PaletteLight()
                 {
-                    Primary = tenant.PublicThemeSettings.PrimaryColor ?? "#594AE2",
-                    Secondary = tenant.PublicThemeSettings.SecondaryColor ?? "#fa541c",
-                    AppbarBackground = tenant.PublicThemeSettings.PrimaryColor ?? "#594AE2",
+                    Primary = org.PublicThemeSettings.PrimaryColor ?? "#594AE2",
+                    Secondary = org.PublicThemeSettings.SecondaryColor ?? "#fa541c",
+                    AppbarBackground = org.PublicThemeSettings.PrimaryColor ?? "#594AE2",
                     AppbarText = Colors.Shades.White
                 }
             };
@@ -101,7 +101,7 @@
     }
     
     // Check if we have a robust header
-    bool HasCustomHeader => !string.IsNullOrEmpty(TenantService.CurrentTenant?.PublicThemeSettings?.HeaderHtml);
+    bool HasCustomHeader => !string.IsNullOrEmpty(OrganizationService.CurrentOrganization?.PublicThemeSettings?.HeaderHtml);
 
     private void Logout()
     {

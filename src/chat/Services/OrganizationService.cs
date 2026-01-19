@@ -2,49 +2,49 @@ using src.Models;
 
 namespace src.Services;
 
-public class TenantService : ITenantService
+public class OrganizationService : IOrganizationService
 {
     private readonly ICosmosDbService _cosmosDbService;
-    private readonly ILogger<TenantService> _logger;
+    private readonly ILogger<OrganizationService> _logger;
 
-    public Organization? CurrentTenant { get; private set; }
+    public Organization? CurrentOrganization { get; private set; }
     public bool IsLoaded { get; private set; }
 
-    public TenantService(ICosmosDbService cosmosDbService, ILogger<TenantService> logger)
+    public OrganizationService(ICosmosDbService cosmosDbService, ILogger<OrganizationService> logger)
     {
         _cosmosDbService = cosmosDbService;
         _logger = logger;
     }
 
-    public async Task<bool> LoadTenantAsync(string slug)
+    public async Task<bool> LoadOrganizationAsync(string slug)
     {
         try
         {
             // If already loaded for this slug, skip (optimization for signalr/re-renders)
-            if (IsLoaded && CurrentTenant?.Slug == slug)
+            if (IsLoaded && CurrentOrganization?.Slug == slug)
             {
                 return true;
             }
 
-            _logger.LogInformation("Resolving tenant for slug: {Slug}", slug);
+            _logger.LogInformation("Resolving organization for slug: {Slug}", slug);
             
             var organization = await _cosmosDbService.GetOrganizationBySlugAsync(slug);
             
             if (organization != null)
             {
-                CurrentTenant = organization;
+                CurrentOrganization = organization;
                 IsLoaded = true;
                 return true;
             }
             
-            _logger.LogWarning("Tenant not found for slug: {Slug}", slug);
-            CurrentTenant = null;
+            _logger.LogWarning("Organization not found for slug: {Slug}", slug);
+            CurrentOrganization = null;
             IsLoaded = true; // Loaded, but found nothing
             return false;
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Error loading tenant {Slug}", slug);
+            _logger.LogError(ex, "Error loading organization {Slug}", slug);
             return false;
         }
     }
