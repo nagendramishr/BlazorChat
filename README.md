@@ -13,6 +13,9 @@ A modern AI-powered chat application built with .NET 10 Blazor Server, Azure Cos
 - 🎨 **Modern UI** - MudBlazor component library with responsive design
 - 🧠 **Context Management** - Smart token counting and conversation trimming
 
+<img width="640" height="380" alt="image" src="https://github.com/user-attachments/assets/ce5b1b52-4931-4431-bf9b-b930a3842118" />
+
+
 ## Prerequisites
 
 - .NET 10 SDK
@@ -228,3 +231,4 @@ For issues or questions, please check:
 - Azure AI Foundry documentation
 - Azure Cosmos DB best practices
 - Project issues/discussions
+
