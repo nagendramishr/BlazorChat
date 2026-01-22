@@ -5,15 +5,19 @@ A modern AI-powered chat application built with .NET 10 Blazor Server, Azure Cos
 ## Features
 
 - 🤖 **AI-Powered Conversations** - Integration with Microsoft Foundry AI agents for intelligent responses
+  - **Custom Content** - Customize the knowledgebase that the LLM will use for generating responses
 - 💬 **Real-time Chat** - Blazor Server with streaming responses
+  - **Multi-Tenant** - Can host chats for multiple organizations, each with their own custom look and feel
 - 📝 **Markdown Support** - Rich text formatting with code highlighting
 - 💾 **Persistent Storage** - Azure Cosmos DB for conversations and messages
 - 🔐 **Secure Authentication** - ASP.NET Core Identity with user management
+  - **Microsoft Entra** - Integrate with Microsoft Entra ID for user authentication
+  - **Custom Identity provider** - Extensible to use your own identity provider
 - 📊 **Telemetry** - Application Insights integration for monitoring
 - 🎨 **Modern UI** - MudBlazor component library with responsive design
 - 🧠 **Context Management** - Smart token counting and conversation trimming
-
-<img width="640" height="380" alt="image" src="https://github.com/user-attachments/assets/ce5b1b52-4931-4431-bf9b-b930a3842118" />
+ 
+<img width="640" height="380" alt="image" src="https://github.com/user-attachments/assets/08154db0-fb02-4f1b-9606-f0770f0d20f5" />
 
 
 ## Prerequisites
@@ -231,4 +235,5 @@ For issues or questions, please check:
 - Azure AI Foundry documentation
 - Azure Cosmos DB best practices
 - Project issues/discussions
+
 
