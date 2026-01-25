@@ -1,0 +1,339 @@
+# BlazorChat Reporting Service - Implementation Tasks
+
+## Overview
+
+The Reporting Service is a **separate microservice** responsible for:
+- Aggregating AI usage data from Application Insights
+- Storing usage summaries in Cosmos DB
+- Providing APIs for usage dashboards
+- Managing quotas and billing data
+- Generating reports and alerts
+
+**Why Separate?**
+- BlazorChat is the chat UI - it shouldn't aggregate billing data
+- SimpleL7Proxy logs raw telemetry to App Insights
+- Reporting Service queries App Insights, aggregates, and stores summaries
+- Clean separation of concerns, independent scaling
+
+```
+┌─────────────┐     ┌─────────────────┐     ┌─────────────────┐
+│ BlazorChat  │────▶│ SimpleL7Proxy   │────▶│ Azure AI        │
+│ (Chat UI)   │     │ (Logs tokens)   │     │ (LLM)           │
+└─────────────┘     └────────┬────────┘     └─────────────────┘
+                             │
+                             ▼
+                    ┌─────────────────┐
+                    │ App Insights    │
+                    │ (Raw telemetry) │
+                    └────────┬────────┘
+                             │
+                             ▼
+                    ┌─────────────────┐     ┌─────────────────┐
+                    │ Reporting Svc   │────▶│ Cosmos DB       │
+                    │ (Aggregation)   │     │ (Summaries)     │
+                    └─────────────────┘     └─────────────────┘
+                             │
+                             ▼
+                    ┌─────────────────┐
+                    │ Dashboard API   │
+                    │ (for BlazorChat)│
+                    └─────────────────┘
+```
+
+================================================================================
+## PHASE 1: Core Infrastructure
+================================================================================
+
+### Task R1: Project Setup
+Priority: HIGH
+Goal: Create the Reporting Service project with proper structure.
+
+#### R1.1: Create Project Structure
+- [ ] Create new project: `reporting/` (Azure Functions or ASP.NET Core Worker)
+- [ ] Decision: Azure Functions (consumption) vs Worker Service (container)
+  - Functions: Pay-per-execution, built-in timers, easier deployment
+  - Worker: More control, better for heavy aggregation workloads
+- [ ] Add NuGet packages:
+  - Azure.Monitor.Query (query App Insights)
+  - Microsoft.Azure.Cosmos
+  - Azure.Identity
+
+#### R1.2: Configuration
+- [ ] Create appsettings.json:
+  ```json
+  {
+    "ApplicationInsights": {
+      "WorkspaceId": "<log-analytics-workspace-id>"
+    },
+    "CosmosDb": {
+      "Endpoint": "<cosmos-endpoint>",
+      "DatabaseName": "BlazorChat",
+      "UsageContainerName": "usage"
+    },
+    "Aggregation": {
+      "HourlySyncEnabled": true,
+      "DailySummaryHour": 2,
+      "RetentionDays": 90
+    },
+    "Pricing": {
+      "gpt-4o": { "inputPerMillion": 2.50, "outputPerMillion": 10.00 },
+      "gpt-4o-mini": { "inputPerMillion": 0.15, "outputPerMillion": 0.60 }
+    }
+  }
+  ```
+
+#### R1.3: Cosmos DB Container Setup
+- [ ] Create `usage` container with partition key `/organizationId`
+- [ ] Document types:
+  - `dailySummary` - Daily rollups per user/org
+  - `monthlySummary` - Monthly rollups for billing
+  - `quotaStatus` - Real-time quota tracking
+  - `alert` - Usage alerts and notifications
+
+================================================================================
+## PHASE 2: Usage Aggregation
+================================================================================
+
+### Task R2: App Insights Query Service
+Priority: HIGH
+Goal: Query token usage data from Application Insights.
+
+#### R2.1: Create Query Service
+- [ ] Create: IAppInsightsQueryService.cs
+  ```csharp
+  public interface IAppInsightsQueryService
+  {
+      Task<IEnumerable<TokenUsageRecord>> GetUsageByOrgAsync(
+          string orgId, DateTimeOffset start, DateTimeOffset end);
+      Task<IEnumerable<TokenUsageRecord>> GetUsageByUserAsync(
+          string userId, DateTimeOffset start, DateTimeOffset end);
+      Task<IEnumerable<TokenUsageRecord>> GetUsageByConversationAsync(
+          string conversationId);
+  }
+  ```
+
+#### R2.2: Implement Kusto Queries
+- [ ] Query: Get token usage by organization
+  ```kusto
+  requests
+  | where timestamp between (datetime({start}) .. datetime({end}))
+  | where customDimensions["x-org-id"] == "{orgId}"
+  | extend promptTokens = toint(customDimensions["Usage.Prompt_Tokens"])
+  | extend completionTokens = toint(customDimensions["Usage.Completion_Tokens"])
+  | extend conversationId = tostring(split(customDimensions["x-request-id"], "_")[0])
+  | summarize 
+      TotalPromptTokens = sum(promptTokens),
+      TotalCompletionTokens = sum(completionTokens),
+      RequestCount = count()
+    by bin(timestamp, 1h), conversationId
+  ```
+
+#### R2.3: Create Data Models
+- [ ] Create: TokenUsageRecord.cs
+  ```csharp
+  public record TokenUsageRecord(
+      string OrganizationId,
+      string UserId,
+      string ConversationId,
+      DateTimeOffset Timestamp,
+      int PromptTokens,
+      int CompletionTokens,
+      int TotalTokens,
+      string ModelName,
+      double DurationMs);
+  ```
+
+### Task R3: Aggregation Jobs
+Priority: HIGH
+Goal: Scheduled jobs to aggregate usage data.
+
+#### R3.1: Hourly Sync Job
+- [ ] Create: HourlySyncJob (Azure Function Timer or BackgroundService)
+- [ ] Runs every hour
+- [ ] Queries App Insights for last 2 hours (overlap for retries)
+- [ ] Upserts to Cosmos DB usage container
+- [ ] Updates quota counters
+
+#### R3.2: Daily Summary Job
+- [ ] Create: DailySummaryJob
+- [ ] Runs at 2 AM UTC
+- [ ] Aggregates previous day's usage
+- [ ] Creates DailyUsageSummary documents
+- [ ] Calculates cost estimates
+
+#### R3.3: Monthly Rollup Job
+- [ ] Create: MonthlyRollupJob
+- [ ] Runs on 1st of each month
+- [ ] Aggregates previous month for billing
+- [ ] Creates MonthlySummary documents
+
+### Task R4: Usage Storage
+Priority: HIGH
+Goal: Store aggregated usage in Cosmos DB.
+
+#### R4.1: Create Cosmos DB Models
+- [ ] Create: DailyUsageSummary.cs
+  ```csharp
+  public class DailyUsageSummary
+  {
+      public string Id => $"{OrganizationId}_{UserId}_{Date:yyyy-MM-dd}";
+      public string Type => "dailySummary";
+      public string OrganizationId { get; set; } // partition key
+      public string UserId { get; set; }
+      public DateOnly Date { get; set; }
+      public int PromptTokens { get; set; }
+      public int CompletionTokens { get; set; }
+      public int TotalTokens { get; set; }
+      public int RequestCount { get; set; }
+      public int ConversationCount { get; set; }
+      public decimal EstimatedCostUsd { get; set; }
+      public DateTime LastUpdated { get; set; }
+  }
+  ```
+
+- [ ] Create: QuotaStatus.cs
+  ```csharp
+  public class QuotaStatus
+  {
+      public string Id { get; set; } // orgId or orgId_userId
+      public string Type => "quotaStatus";
+      public string OrganizationId { get; set; }
+      public string? UserId { get; set; }
+      public string Period { get; set; } // "daily", "monthly"
+      public int TokenLimit { get; set; }
+      public int TokensUsed { get; set; }
+      public int RequestLimit { get; set; }
+      public int RequestsUsed { get; set; }
+      public DateTime ResetAt { get; set; }
+      public bool IsExceeded { get; set; }
+  }
+  ```
+
+#### R4.2: Create Usage Repository
+- [ ] Create: IUsageRepository.cs
+- [ ] Create: CosmosUsageRepository.cs
+- [ ] Methods: UpsertDailySummary, GetSummariesByOrg, GetQuotaStatus, UpdateQuota
+
+================================================================================
+## PHASE 3: API for Dashboards
+================================================================================
+
+### Task R5: Usage API
+Priority: MEDIUM
+Goal: Expose APIs for BlazorChat to display usage dashboards.
+
+#### R5.1: Create API Endpoints
+- [ ] GET /api/usage/user/{userId}?start={date}&end={date}
+- [ ] GET /api/usage/org/{orgId}?start={date}&end={date}
+- [ ] GET /api/usage/org/{orgId}/users (breakdown by user)
+- [ ] GET /api/quota/{orgId}/{userId}
+
+#### R5.2: Response Models
+- [ ] UsageSummaryResponse
+- [ ] UserUsageBreakdown
+- [ ] QuotaStatusResponse
+
+#### R5.3: Authentication
+- [ ] Require Azure AD token from BlazorChat
+- [ ] Validate org membership for org-level queries
+- [ ] Rate limit API calls
+
+================================================================================
+## PHASE 4: Quota Management
+================================================================================
+
+### Task R6: Quota Enforcement
+Priority: MEDIUM
+Goal: Real-time quota checking for BlazorChat.
+
+#### R6.1: Quota Check API
+- [ ] GET /api/quota/check/{orgId}/{userId}
+- [ ] Returns: { allowed: bool, remaining: int, resetAt: datetime }
+- [ ] BlazorChat calls before sending AI request
+- [ ] Fast response required (< 100ms)
+
+#### R6.2: Quota Update
+- [ ] POST /api/quota/increment/{orgId}/{userId}
+- [ ] Called by BlazorChat after AI response
+- [ ] Body: { tokens: int, requestCount: 1 }
+- [ ] Updates QuotaStatus in Cosmos DB
+
+#### R6.3: Quota Reset Job
+- [ ] Scheduled job to reset daily/monthly quotas
+- [ ] Daily reset at midnight UTC
+- [ ] Monthly reset on 1st of month
+
+================================================================================
+## PHASE 5: Alerts & Notifications
+================================================================================
+
+### Task R7: Usage Alerts
+Priority: LOW
+Goal: Alert when usage exceeds thresholds.
+
+#### R7.1: Threshold Configuration
+- [ ] Per-org configurable thresholds:
+  - 50%, 75%, 90%, 100% of quota
+- [ ] Store in Organization settings
+
+#### R7.2: Alert Generation
+- [ ] Check thresholds during quota update
+- [ ] Create Alert document in Cosmos DB
+- [ ] Send webhook/email notification
+
+#### R7.3: Alert API
+- [ ] GET /api/alerts/{orgId}
+- [ ] PATCH /api/alerts/{alertId}/acknowledge
+
+================================================================================
+## PHASE 6: Cost Reporting
+================================================================================
+
+### Task R8: Cost Calculation
+Priority: LOW
+Goal: Calculate and report AI costs.
+
+#### R8.1: Pricing Service
+- [ ] Create: IPricingService.cs
+- [ ] Load pricing from config
+- [ ] Calculate: tokens × price per million tokens
+- [ ] Support different models (gpt-4o, gpt-4o-mini)
+
+#### R8.2: Cost Reports
+- [ ] Daily cost by org
+- [ ] Monthly cost by org with trend
+- [ ] Cost per user breakdown
+- [ ] Export to CSV
+
+================================================================================
+## Implementation Order
+================================================================================
+
+**Week 1**: R1 (Setup) + R2 (App Insights Query)
+**Week 2**: R3 (Aggregation Jobs) + R4 (Storage)
+**Week 3**: R5 (API) + R6 (Quota)
+**Week 4**: R7 (Alerts) + R8 (Cost Reports)
+
+================================================================================
+## BlazorChat Integration Points
+================================================================================
+
+BlazorChat will call the Reporting Service for:
+
+1. **Before AI Request** (quota check):
+   ```csharp
+   var quota = await _reportingClient.CheckQuotaAsync(orgId, userId);
+   if (!quota.Allowed) throw new QuotaExceededException();
+   ```
+
+2. **After AI Response** (quota increment):
+   ```csharp
+   await _reportingClient.IncrementUsageAsync(orgId, userId, tokens);
+   ```
+
+3. **Dashboard Pages** (usage display):
+   ```csharp
+   var usage = await _reportingClient.GetUserUsageAsync(userId, start, end);
+   ```
+
+This keeps BlazorChat focused on chat, and Reporting Service focused on analytics.

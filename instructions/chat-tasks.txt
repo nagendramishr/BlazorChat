@@ -36,53 +36,21 @@ as the AI gateway. This OSS project provides significant infrastructure benefits
 - E3.1 (Quota Management): EASIER - Proxy has priority queues
 - E7.4 (Graceful Degradation): SIMPLIFIED - Circuit breaker built-in
 
-### Task A0: SimpleL7Proxy Integration ⭐ NEW
+### Task A0: SimpleL7Proxy Integration ✅ COMPLETE
 Priority: HIGH (Foundation - enables simplified token tracking)
 Goal: Route all AI traffic through SimpleL7Proxy gateway via configuration.
 
-**Simplified Approach**: Proxy is assumed to be deployed and configured separately.
-BlazorChat just needs to point to the proxy URL in appsettings.json.
+**Implementation Summary** (Completed Jan 2026):
+- ✅ Added `AIFoundry:ProxyEndpoint` config option in appsettings.json
+- ✅ Updated AIFoundryService to use either Endpoint or ProxyEndpoint
+- ✅ Error if both are configured (must choose one)
+- ✅ Error if neither is configured
+- ✅ Logs which endpoint mode is being used (direct vs proxy)
 
-#### A0.1: Add Proxy Configuration to appsettings.json ✅ SIMPLE
-- [ ] Add configuration section:
-  ```json
-  "AIProxy": {
-    "Enabled": true,
-    "BaseUrl": "https://your-simplel7proxy.azurecontainerapps.io",
-    "CorrelationHeaderName": "x-request-id",
-    "OrganizationHeaderName": "x-org-id",
-    "TimeoutSeconds": 120
-  }
-  ```
-- [ ] When `AIProxy:Enabled` is true, route through proxy
-- [ ] When `AIProxy:Enabled` is false, call AI Foundry directly (dev/testing)
-
-#### A0.2: Update AIFoundryService to Use Proxy URL
-- [ ] Inject `IOptions<AIProxyOptions>` into AIFoundryService
-- [ ] If proxy enabled, use `AIProxy:BaseUrl` as base endpoint
-- [ ] If proxy disabled, use `AIFoundry:Endpoint` directly
-- [ ] Add correlation header: `x-request-id: {conversationId}_{messageId}`
-- [ ] Add org header: `x-org-id: {organizationId}`
-- [ ] Streaming responses work unchanged (proxy is transparent)
-
-#### A0.3: Create Configuration Model
-- [ ] Create class: src/Config/AIProxyOptions.cs
-  ```csharp
-  public class AIProxyOptions
-  {
-      public bool Enabled { get; set; } = false;
-      public string BaseUrl { get; set; } = "";
-      public string CorrelationHeaderName { get; set; } = "x-request-id";
-      public string OrganizationHeaderName { get; set; } = "x-org-id";
-      public int TimeoutSeconds { get; set; } = 120;
-  }
-  ```
-- [ ] Register in Program.cs: `builder.Services.Configure<AIProxyOptions>(...)`
-
-#### A0.4: Verify Telemetry Flow
-- [ ] Confirm token metrics appear in App Insights (from proxy)
-- [ ] Query: `requests | where customDimensions contains "Usage.Total_Tokens"`
-- [ ] Verify correlation IDs link proxy logs to app conversations
+**Usage**:
+- For direct connection: Set `AIFoundry:Endpoint`, leave `ProxyEndpoint` empty
+- For proxy routing: Set `AIFoundry:ProxyEndpoint`, leave `Endpoint` empty
+- Proxy is transparent - no code changes needed for streaming
 
 **Deployment Note**: SimpleL7Proxy deployment/configuration is handled separately.
 See: https://github.com/microsoft/SimpleL7Proxy for deployment instructions.
@@ -680,241 +648,59 @@ Thread valid?
 - ✅ Thread valid: Resumes without token cost
 - ⏳ Very long conversations: Deferred (message replay fallback)
 
-### Task C4.4: Add Usage Tracking
-Goal: Track AI usage metrics for cost management, analytics, and quota enforcement.
+### Task C4.4: Usage Tracking Integration ➡️ MOVED TO REPORTING SERVICE
+Goal: Integrate with the Reporting Service for usage tracking and quota enforcement.
 
-**🎯 SIMPLIFIED BY SimpleL7Proxy**: The proxy automatically extracts token usage from
-streaming responses and logs to Application Insights. BlazorChat does NOT need to:
-- Parse SSE streams for token counts
-- Build custom token extraction logic
-- Instrument every AI call manually
+**📦 SEPARATED INTO REPORTING SERVICE**: Usage aggregation, billing, and analytics
+are now handled by a separate Reporting Service. See: `instructions/reporting-tasks.txt`
 
-**What SimpleL7Proxy Provides** (via App Insights custom dimensions):
-- `Usage.Prompt_Tokens` - Input tokens per request
-- `Usage.Completion_Tokens` - Output tokens per request  
-- `Usage.Total_Tokens` - Total billable tokens
-- Request duration, status codes, backend host, retry counts
-
-**What BlazorChat Still Needs to Build**:
-- Link proxy telemetry to conversations (via correlation ID)
-- Aggregate daily/monthly summaries from App Insights data
-- Build usage dashboard UI
-- Quota enforcement (check limits before allowing requests)
-
-#### C4.4.1: Storage Strategy (Simplified)
-**Primary Source**: Application Insights (token data from SimpleL7Proxy)
-**Secondary Storage**: Cosmos DB `usage` container (for aggregations and quotas)
-**Partition Key**: `/organizationId`
-
-**Document Types** (only aggregations needed - raw data in App Insights):
-1. **DailyUsageSummary** - Daily rollup per user/org for dashboards
-2. **QuotaStatus** - Current quota consumption for enforcement
-3. ~~**AIRequestLog**~~ - NOT NEEDED, App Insights has raw request data
-
-#### C4.4.2: Create Usage Models (Simplified with SimpleL7Proxy)
-- [ ] Create model: src/Models/AIUsage.cs
-  ```
-  # NOTE: Raw token data comes from App Insights (via SimpleL7Proxy)
-  # These models are for AGGREGATIONS and QUOTA tracking only
-  
-  DailyUsageSummary:
-  - id: string (orgId_userId_date)
-  - type: "dailySummary"
-  - organizationId: string (partition key)
-  - userId: string
-  - date: string (yyyy-MM-dd)
-  - promptTokens: int             # Aggregated from App Insights
-  - completionTokens: int         # Aggregated from App Insights
-  - totalTokens: int
-  - requestCount: int
-  - estimatedCostUsd: decimal
-  - lastUpdated: DateTime
-  
-  QuotaStatus:
-  - id: string (orgId or orgId_userId)
-  - type: "quotaStatus"
-  - organizationId: string (partition key)
-  - userId: string?               # null for org-level quota
-  - quotaPeriod: string           # "daily", "monthly"
-  - tokenLimit: int
-  - tokensUsed: int
-  - requestLimit: int
-  - requestsUsed: int
-  - resetAt: DateTime
-  - isExceeded: bool
-  
-  # ConversationUsage - OPTIONAL, can derive from App Insights query
-  # Only store if you need fast lookups without querying App Insights
-  
-  # Billable vs operational breakdown
-  - userInputTokens: int
-  - assistantOutputTokens: int
-  - rehydrationTokens: int
-  - cachedTokens: int
-  
-  - totalRequests: int
-  - rehydrationCount: int
-  - conversationCount: int
-  - resumedConversationCount: int   # Convos that needed rehydration
-  
-  - estimatedUserCostUsd: decimal
-  - estimatedOperationalCostUsd: decimal
-  ```
-
-#### C4.4.3: Extend Existing Models
-- [ ] Extend MessageMetadata (already exists) to include:
-  - inputTokens: int (prompt tokens)
-  - outputTokens: int (completion tokens)
-  - promptCacheHit: bool (Azure AI prompt caching)
-  - cachedTokens: int (tokens served from cache at 50% cost)
-  - isRehydrationMessage: bool (true if sent during context replay)
-  
-- [ ] Extend Conversation model to include usage summary:
-  - totalBillableTokens: int       # User-billable only
-  - totalRehydrationTokens: int    # Operational overhead
-  - totalRequests: int
-  - rehydrationCount: int          # Times this convo was resumed
-  - lastModelUsed: string
-  - agentThreadId: string?         # For thread persistence (see C4.3.5)
-  - agentThreadCreatedAt: DateTime?
-
-#### C4.4.4: Create Usage Service (Simplified with SimpleL7Proxy)
-- [ ] Create interface: src/Services/IUsageTrackingService.cs
-- [ ] Create service: src/Services/UsageTrackingService.cs
-
-**Query Methods** (read from App Insights via Azure Monitor Query SDK):
-  - GetConversationUsageAsync(conversationId) → query App Insights by correlation ID
-  - GetUserUsageAsync(userId, startDate, endDate) → aggregate from App Insights
-  - GetOrganizationUsageAsync(orgId, startDate, endDate) → aggregate from App Insights
-  
-**Aggregation Methods** (write to Cosmos DB for fast dashboard access):
-  - SyncDailySummaryAsync(orgId, date) → pull from App Insights, store in Cosmos
-  - Background job runs hourly/daily to keep summaries fresh
-  
-**Quota Methods** (real-time enforcement):
-  - CheckQuotaAsync(orgId, userId) → check against QuotaStatus in Cosmos
-  - IncrementUsageAsync(orgId, userId, tokens) → update QuotaStatus
-  - ResetQuotaAsync(orgId, userId) → called by scheduled job
-  
-**What's NOT Needed** (handled by SimpleL7Proxy):
-  - ~~TrackUserRequestAsync~~ - Proxy logs to App Insights automatically
-  - ~~Token extraction from responses~~ - Proxy parses SSE streams
-  - ~~Manual App Insights TrackEvent calls~~ - Proxy handles telemetry
-  
-- [ ] Register service as singleton in Program.cs
-- [ ] Add NuGet: Azure.Monitor.Query (for querying App Insights)
-
-#### C4.4.5: Integrate with AIFoundryService (Simplified with SimpleL7Proxy)
-**Token Capture**: ✅ HANDLED BY PROXY - No code changes needed in AIFoundryService!
-
-SimpleL7Proxy automatically extracts tokens from SSE responses and logs to App Insights.
-BlazorChat just needs to pass correlation headers for linking requests to conversations.
-
-- [ ] Add correlation header to AI requests: `x-request-id: {conversationId}_{messageId}`
-- [ ] Add org header for multi-tenant routing: `x-org-id: {organizationId}`
-- [ ] ~~Capture token counts~~ - Proxy does this automatically
-- [ ] ~~Call TrackAIRequestAsync~~ - Proxy logs to App Insights
-
-**For Quota Enforcement** (still needed in app):
-- [ ] Before sending request, call `UsageTrackingService.CheckQuotaAsync()`
-- [ ] If quota exceeded, return error to user (don't send to AI)
-- [ ] After response, call `UsageTrackingService.IncrementUsageAsync()` to update quota counter
-- [ ] Handle quota increment failures gracefully (log but don't fail chat)
-
-#### C4.4.6: Application Insights Integration (Simplified with SimpleL7Proxy)
-**Metrics Logged by SimpleL7Proxy** (already available in App Insights):
-  - Usage.Prompt_Tokens - input tokens per request
-  - Usage.Completion_Tokens - output tokens per request
-  - Usage.Total_Tokens - total tokens per request
-  - Request duration, status codes, retry counts
-  - Backend host, circuit breaker status
-  
-**BlazorChat Still Needs to Log** (app-level context):
-  - [ ] Correlation header linking request to conversationId
-  - [ ] App-level events: ConversationCreated, UserLogin, QuotaExceeded
-  - [ ] Rehydration events (when thread replay occurs)
-  
-**Kusto Queries for Usage Dashboard**:
-```kusto
-// Total tokens by organization (last 7 days)
-requests
-| where timestamp > ago(7d)
-| where customDimensions contains "Usage.Total_Tokens"
-| extend orgId = tostring(customDimensions["x-org-id"])
-| extend tokens = toint(customDimensions["Usage.Total_Tokens"])
-| summarize TotalTokens=sum(tokens), Requests=count() by orgId
-| order by TotalTokens desc
+**Architecture**:
+```
+BlazorChat ──▶ SimpleL7Proxy ──▶ Azure AI
+                    │
+                    ▼ (logs tokens)
+              App Insights
+                    │
+                    ▼ (queries & aggregates)
+            Reporting Service ──▶ Cosmos DB (usage)
+                    │
+                    ▼ (API)
+              BlazorChat (dashboards)
 ```
 
-- [ ] Create Azure Monitor workbook with pre-built queries
-- [ ] Set up alerts for quota thresholds
-- [ ] Create cost estimation dashboard (tokens × price per model)
+**What BlazorChat Needs to Do** (minimal):
 
-#### C4.4.7: Cost Estimation Configuration
-- [ ] Add pricing config to appsettings.json:
-  ```json
-  "AIUsage": {
-    "PricingPerMillionTokens": {
-      "gpt-4o": { "input": 2.50, "output": 10.00 },
-      "gpt-4o-mini": { "input": 0.15, "output": 0.60 }
-    },
-    "DefaultModel": "gpt-4o-mini"
-  }
-  ```
-- [ ] Create pricing lookup service for cost calculation
+#### C4.4.1: Add Correlation Headers ✅ (via proxy config)
+- [x] SimpleL7Proxy receives conversationId, userId, orgId from request headers
+- [ ] Ensure headers are passed: `x-request-id`, `x-user-id`, `x-org-id`
+- [ ] Headers enable linking App Insights telemetry to conversations
 
-#### C4.4.8: Usage Reporting & Dashboard (Future - Phase 7)
-Goal: Provide visibility into AI usage and costs for users, org admins, and global admins.
+#### C4.4.2: Quota Check Before AI Request
+- [ ] Create: IReportingServiceClient.cs (HTTP client to Reporting Service)
+- [ ] Before sending AI request, call: `CheckQuotaAsync(orgId, userId)`
+- [ ] If quota exceeded, return friendly error to user
+- [ ] Configuration: `ReportingService:BaseUrl` in appsettings.json
 
-**User Views** (see their own usage):
-- [ ] Create page: src/Components/Pages/Account/MyUsage.razor
-  - Daily/weekly/monthly usage summary
-  - Token breakdown (input vs output)
-  - Cost estimates for current billing period
-  - Conversation count and average tokens per conversation
-  - Top 5 most expensive conversations
+#### C4.4.3: Quota Increment After AI Response
+- [ ] After AI response completes, call: `IncrementUsageAsync(orgId, userId, tokens)`
+- [ ] Fire-and-forget or queue for reliability
+- [ ] Handle failures gracefully (log, don't fail chat)
 
-**Organization Admin Views** (see org-wide usage):
-- [ ] Create page: src/Components/Pages/Admin/OrgUsageDashboard.razor
-  - Aggregate usage across all org users
-  - Per-user breakdown with sortable table
-  - Billable vs operational cost split (rehydration overhead)
-  - Usage trends chart (last 30 days)
-  - Export to CSV functionality
+#### C4.4.4: Usage Dashboard Pages
+- [ ] Create: src/Components/Pages/Account/MyUsage.razor
+  - Calls Reporting Service API for user's usage
+  - Displays token usage, cost estimates
+- [ ] Create: src/Components/Pages/Admin/OrgUsageDashboard.razor
+  - Calls Reporting Service API for org usage
+  - Per-user breakdown, trends
 
-**Global Admin Views** (see all organizations):
-- [ ] Create page: src/Components/Pages/Admin/GlobalUsageDashboard.razor
-  - Per-organization usage comparison
-  - System-wide token consumption
-  - Rehydration cost analysis (optimization opportunity)
-  - Prompt cache hit rate metrics
-  - Anomaly detection (unusual usage spikes)
-
-**Shared Components**:
-- [ ] Create component: src/Components/Shared/UsageChart.razor (MudBlazor charts)
-- [ ] Create component: src/Components/Shared/TokenBreakdownCard.razor
-- [ ] Create component: src/Components/Shared/CostEstimateCard.razor
-- [ ] Create component: src/Components/Shared/UsageTable.razor (sortable/filterable)
-
-**API Endpoints**:
-- [ ] GET /api/usage/me - Current user's usage summary
-- [ ] GET /api/usage/me/daily?start={date}&end={date} - User's daily breakdown
-- [ ] GET /api/usage/org/{orgId} - Org usage summary (org admin only)
-- [ ] GET /api/usage/org/{orgId}/users - Per-user breakdown (org admin only)
-- [ ] GET /api/usage/global - All orgs summary (global admin only)
-- [ ] GET /api/usage/export?orgId={orgId}&format=csv - Export functionality
-
-**Authorization**:
-- [ ] Users can only see their own usage
-- [ ] Org admins can see aggregate org usage + per-user breakdown
-- [ ] Global admins can see all organizations
-- [ ] Add policies: "CanViewOrgUsage", "CanViewGlobalUsage"
-
-**Performance Considerations**:
-- [ ] Cache daily summaries (they don't change after day ends)
-- [ ] Use pagination for user lists (large orgs)
-- [ ] Pre-aggregate monthly rollups via background job
-- [ ] Consider Azure Monitor workbooks for heavy analytics
+**What Moved to Reporting Service** (see reporting-tasks.txt):
+- ❌ Token extraction from SSE streams (handled by SimpleL7Proxy)
+- ❌ App Insights query logic
+- ❌ Usage aggregation jobs
+- ❌ Cost calculation
+- ❌ Quota management
+- ❌ Alert generation
 
 ## PHASE 5: Chat UI Components
 
