@@ -1,0 +1,721 @@
+# BlazorChat Enterprise-Grade Capabilities
+
+This document outlines additional features and capabilities required to make BlazorChat
+a fully enterprise-ready application. These are organized by category with priority levels.
+
+Priority Levels:
+- HIGH: Required for enterprise sales, non-negotiable for compliance
+- MEDIUM: Expected by enterprise customers, competitive differentiator
+- LOW: Nice to have, can be deferred to later releases
+
+================================================================================
+## PHASE E1: Security & Access Control
+================================================================================
+
+### Task E1.1: Role-Based Access Control (RBAC)
+Priority: HIGH
+Description: Implement fine-grained permissions (view, edit, delete, admin) per resource type.
+             Enables orgs to define custom roles and assign specific capabilities.
+
+Implementation Tasks:
+- [ ] Define permission model: src/Models/Permission.cs
+  - Resource types: Conversation, Organization, User, Settings, Reports
+  - Actions: View, Create, Edit, Delete, Admin
+- [ ] Create Role model: src/Models/Role.cs
+  - Properties: Id, Name, Description, Permissions[], IsSystemRole
+  - System roles: User, OrgAdmin, GlobalAdmin
+  - Custom roles per organization
+- [ ] Create service: src/Services/IRbacService.cs, RbacService.cs
+  - HasPermissionAsync(userId, resource, action)
+  - GetUserRolesAsync(userId)
+  - AssignRoleAsync(userId, roleId)
+- [ ] Create authorization handler: src/Authorization/RbacAuthorizationHandler.cs
+- [ ] Update all endpoints/pages to check RBAC permissions
+- [ ] Create admin UI: src/Components/Pages/Admin/RoleManagement.razor
+
+### Task E1.2: Row-Level Security (RLS)
+Priority: HIGH
+Description: Ensure users only see their organization's data at the database query level.
+             Defense-in-depth approach to prevent data leakage between tenants.
+
+Implementation Tasks:
+- [ ] Add OrganizationId filter to all Cosmos DB queries
+- [ ] Create base repository with automatic org filtering
+- [ ] Implement query interceptor for organization context
+- [ ] Add unit tests to verify cross-org data isolation
+- [ ] Audit existing queries for RLS compliance
+- [ ] Document RLS patterns in developer guidance
+
+### Task E1.3: IP Allowlisting
+Priority: MEDIUM
+Description: Restrict access to specific corporate IP ranges per organization.
+             Enables enterprises to enforce access from corporate networks only.
+
+Implementation Tasks:
+- [ ] Add to Organization model: AllowedIpRanges: string[]
+- [ ] Create middleware: src/Middleware/IpAllowlistMiddleware.cs
+- [ ] Parse CIDR notation for IP range matching
+- [ ] Bypass allowlist for global admins
+- [ ] Create admin UI for managing IP ranges
+- [ ] Log blocked access attempts for security review
+
+### Task E1.4: Session Management
+Priority: MEDIUM
+Description: Control user sessions with force logout, concurrent session limits, and timeouts.
+             Enables security policies for sensitive environments.
+
+Implementation Tasks:
+- [ ] Track active sessions in Cosmos DB: src/Models/UserSession.cs
+  - Properties: Id, UserId, DeviceInfo, IpAddress, CreatedAt, LastActivityAt, IsActive
+- [ ] Implement session limit per user (configurable per org)
+- [ ] Add "Sign out all devices" functionality
+- [ ] Admin ability to force logout specific user
+- [ ] Configurable session timeout (idle and absolute)
+- [ ] Create session management UI for users and admins
+
+### Task E1.5: API Key Management
+Priority: MEDIUM
+Description: Allow organizations to create service accounts and API keys for integrations.
+             Enables programmatic access for automation and third-party tools.
+
+Implementation Tasks:
+- [ ] Create model: src/Models/ApiKey.cs
+  - Properties: Id, OrganizationId, Name, KeyHash, Permissions[], CreatedAt, ExpiresAt, LastUsedAt
+- [ ] Create service: src/Services/IApiKeyService.cs
+  - CreateApiKeyAsync(orgId, name, permissions, expiry)
+  - ValidateApiKeyAsync(keyValue)
+  - RevokeApiKeyAsync(keyId)
+- [ ] Implement API key authentication handler
+- [ ] Rate limit per API key
+- [ ] Create admin UI for key management
+- [ ] Log all API key usage
+
+### Task E1.6: Security Event Logging
+Priority: HIGH
+Description: Comprehensive logging of security-relevant events for compliance and forensics.
+             Required for SOC2, ISO27001, and enterprise security audits.
+
+Implementation Tasks:
+- [ ] Define security event types:
+  - Authentication: Login success/failure, logout, password change
+  - Authorization: Permission denied, role changes
+  - Data: Export, delete, bulk operations
+  - Admin: User management, org settings changes
+- [ ] Create model: src/Models/SecurityEvent.cs
+- [ ] Create service: src/Services/ISecurityEventService.cs
+- [ ] Store events in dedicated Cosmos DB container (immutable)
+- [ ] Create security event viewer for admins
+- [ ] Configure retention policies (typically 1-7 years)
+- [ ] Export to SIEM (Splunk, Sentinel) via Event Hub
+
+================================================================================
+## PHASE E2: Observability & Operations
+================================================================================
+
+### Task E2.1: Distributed Tracing
+Priority: HIGH
+Description: End-to-end request tracing using OpenTelemetry for debugging and performance.
+             Essential for troubleshooting issues across distributed components.
+
+Implementation Tasks:
+- [ ] Add NuGet packages: OpenTelemetry.*, Azure.Monitor.OpenTelemetry.Exporter
+- [ ] Configure OpenTelemetry in Program.cs
+- [ ] Add trace context to all service calls
+- [ ] Propagate trace IDs to AI Foundry requests
+- [ ] Create correlation between Blazor, API, Cosmos DB, AI calls
+- [ ] Configure sampling for high-volume production
+- [ ] Create runbooks for common trace analysis scenarios
+
+### Task E2.2: SLA Monitoring
+Priority: MEDIUM
+Description: Track uptime, response times, and error rates per organization.
+             Enables SLA reporting for enterprise customers.
+
+Implementation Tasks:
+- [ ] Define SLA metrics:
+  - Availability: % of successful requests
+  - Latency: P50, P95, P99 response times
+  - Error rate: % of failed requests
+- [ ] Create SLA dashboard in Azure Monitor/Grafana
+- [ ] Calculate SLA per organization
+- [ ] Generate monthly SLA reports
+- [ ] Alert when SLA thresholds breached
+- [ ] Document SLA calculation methodology
+
+### Task E2.3: Alerting Rules
+Priority: MEDIUM
+Description: Configurable alerts for anomalies, quota breaches, and operational issues.
+             Enables proactive monitoring and rapid incident response.
+
+Implementation Tasks:
+- [ ] Define alert types:
+  - Usage: Quota approaching limit, unusual token consumption
+  - Performance: Latency spikes, error rate increase
+  - Security: Multiple failed logins, suspicious IP access
+  - Operational: Health check failures, dependency issues
+- [ ] Create alert configuration UI for admins
+- [ ] Integrate with notification channels (email, Teams, PagerDuty)
+- [ ] Implement alert suppression/grouping
+- [ ] Create on-call rotation support
+
+### Task E2.4: Admin Impersonation
+Priority: LOW
+Description: Support staff can "view as user" for troubleshooting without accessing credentials.
+             Enables efficient customer support while maintaining security.
+
+Implementation Tasks:
+- [ ] Create impersonation service: src/Services/ImpersonationService.cs
+- [ ] Require explicit permission for impersonation
+- [ ] Log all impersonation sessions
+- [ ] Visual indicator when viewing as another user
+- [ ] Time-limited impersonation sessions
+- [ ] Audit trail with reason for impersonation
+
+### Task E2.5: Feature Flags
+Priority: MEDIUM
+Description: Gradual rollout of new features per organization or user segment.
+             Enables safe deployments and A/B testing.
+
+Implementation Tasks:
+- [ ] Integrate feature flag service (Azure App Configuration, LaunchDarkly, or custom)
+- [ ] Define feature flag model: src/Models/FeatureFlag.cs
+- [ ] Create evaluation service: src/Services/IFeatureFlagService.cs
+- [ ] Support targeting rules (org, user, percentage)
+- [ ] Create admin UI for managing flags
+- [ ] Document feature flag conventions
+
+================================================================================
+## PHASE E3: Multi-Tenancy & Billing
+================================================================================
+
+### Task E3.1: Quota Management
+Priority: HIGH
+Description: Enforce token limits, message limits, and request limits per user/org/day.
+             Prevents runaway costs and ensures fair usage.
+
+Implementation Tasks:
+- [ ] Define quota types:
+  - Daily token limit per user
+  - Daily token limit per organization
+  - Monthly token budget per organization
+  - Concurrent request limit
+  - Message length limit
+- [ ] Create model: src/Models/QuotaConfiguration.cs
+- [ ] Create service: src/Services/IQuotaService.cs
+  - CheckQuotaAsync(userId, orgId, requestedTokens)
+  - GetQuotaUsageAsync(userId, orgId, period)
+  - ResetQuotaAsync(userId, period) - for manual resets
+- [ ] Enforce quotas before AI requests
+- [ ] Return clear error messages when quota exceeded
+- [ ] Create quota management UI for org admins
+- [ ] Send alerts when approaching quota limits
+
+### Task E3.2: Billing Integration
+Priority: MEDIUM
+Description: Usage-based billing via Stripe or Azure Marketplace.
+             Enables commercial deployment and revenue generation.
+
+Implementation Tasks:
+- [ ] Choose billing provider (Stripe recommended for flexibility)
+- [ ] Create billing models:
+  - BillingPlan: Free, Starter, Pro, Enterprise
+  - BillingSubscription: OrgId, PlanId, Status, CurrentPeriod
+  - Invoice: OrgId, Period, TokenUsage, Amount, Status
+- [ ] Create service: src/Services/IBillingService.cs
+- [ ] Integrate with Stripe API for:
+  - Customer management
+  - Subscription creation/updates
+  - Usage-based billing (metered)
+  - Invoice generation
+- [ ] Create billing portal UI
+- [ ] Handle subscription lifecycle (upgrade, downgrade, cancel)
+- [ ] Implement grace period for payment failures
+
+### Task E3.3: Organization Hierarchy
+Priority: LOW
+Description: Support parent/child organizations for enterprises with subsidiaries.
+             Enables centralized management of related organizations.
+
+Implementation Tasks:
+- [ ] Add to Organization model: ParentOrganizationId: string?
+- [ ] Implement hierarchical data access (parent can see children)
+- [ ] Aggregate usage reporting across hierarchy
+- [ ] Centralized billing for parent org
+- [ ] Inherited settings with override capability
+- [ ] Create org hierarchy visualization
+
+### Task E3.4: White-Labeling
+Priority: MEDIUM
+Description: Custom domains and fully branded experience per organization.
+             Enables resellers and enterprises with brand requirements.
+
+Implementation Tasks:
+- [ ] Add to Organization model:
+  - CustomDomain: string
+  - LogoUrl: string
+  - FaviconUrl: string
+  - CustomEmailDomain: string
+- [ ] Configure custom domain SSL via Azure Front Door
+- [ ] Remove BlazorChat branding when white-labeled
+- [ ] Custom email templates per org
+- [ ] Create white-label configuration UI
+
+### Task E3.5: Data Residency
+Priority: HIGH
+Description: Allow organizations to choose region for data storage.
+             Required for GDPR, data sovereignty, and regulatory compliance.
+
+Implementation Tasks:
+- [ ] Deploy Cosmos DB in multiple regions (US, EU, APAC)
+- [ ] Add to Organization model: DataRegion: string (us, eu, apac)
+- [ ] Route data operations to correct regional endpoint
+- [ ] Prevent cross-region data transfer
+- [ ] Document data residency guarantees
+- [ ] Create region selection during org onboarding
+- [ ] Handle region migration requests
+
+================================================================================
+## PHASE E4: Integration & Extensibility
+================================================================================
+
+### Task E4.1: Webhooks
+Priority: MEDIUM
+Description: Notify external systems on events (new message, conversation created, etc.).
+             Enables integration with customer workflows and automation.
+
+Implementation Tasks:
+- [ ] Define webhook events:
+  - conversation.created, conversation.deleted
+  - message.created (user or assistant)
+  - user.created, user.deleted
+  - quota.exceeded
+- [ ] Create model: src/Models/WebhookSubscription.cs
+  - Properties: Id, OrganizationId, Url, Secret, Events[], IsActive
+- [ ] Create service: src/Services/IWebhookService.cs
+  - SendWebhookAsync(event, payload)
+  - RegisterWebhookAsync(subscription)
+  - ValidateWebhookEndpoint(url)
+- [ ] Implement retry with exponential backoff
+- [ ] Sign payloads with HMAC for verification
+- [ ] Create webhook management UI
+- [ ] Log delivery attempts and failures
+
+### Task E4.2: REST API
+Priority: HIGH
+Description: Public API for third-party integrations and automation.
+             Required for enterprise integration requirements.
+
+Implementation Tasks:
+- [ ] Design RESTful API endpoints:
+  - /api/v1/conversations - CRUD operations
+  - /api/v1/conversations/{id}/messages - Message operations
+  - /api/v1/organizations - Org management (admin)
+  - /api/v1/users - User management (admin)
+  - /api/v1/usage - Usage statistics
+- [ ] Implement API versioning strategy
+- [ ] Add OpenAPI/Swagger documentation
+- [ ] Implement API rate limiting
+- [ ] Support both API key and OAuth authentication
+- [ ] Create API playground for testing
+- [ ] Generate client SDKs (see E4.4)
+
+### Task E4.3: SSO/SCIM Provisioning
+Priority: MEDIUM
+Description: Auto-create and deactivate users based on identity provider.
+             Enables automated user lifecycle management for enterprises.
+
+Implementation Tasks:
+- [ ] Implement SCIM 2.0 endpoints:
+  - /scim/v2/Users - User provisioning
+  - /scim/v2/Groups - Group/role mapping
+- [ ] Support SCIM operations: Create, Read, Update, Delete, List
+- [ ] Map SCIM attributes to ApplicationUser
+- [ ] Handle user deactivation (soft delete, preserve data)
+- [ ] Configure SCIM in Azure AD / Okta / OneLogin
+- [ ] Test with enterprise identity providers
+- [ ] Document SCIM setup guide
+
+### Task E4.4: Plugin System
+Priority: LOW
+Description: Allow orgs to define custom tools/actions the AI can invoke.
+             Enables domain-specific AI capabilities per organization.
+
+Implementation Tasks:
+- [ ] Define plugin interface:
+  - Name, Description, Parameters schema
+  - HTTP endpoint or Azure Function for execution
+- [ ] Create model: src/Models/OrganizationPlugin.cs
+- [ ] Register plugins with AI agent as tools
+- [ ] Secure plugin execution (sandbox, timeout)
+- [ ] Create plugin management UI
+- [ ] Provide plugin development SDK/template
+
+### Task E4.5: Conversation Templates
+Priority: MEDIUM
+Description: Pre-defined prompts and workflows per organization.
+             Enables consistent AI interactions for common use cases.
+
+Implementation Tasks:
+- [ ] Create model: src/Models/ConversationTemplate.cs
+  - Properties: Id, OrganizationId, Name, Description, SystemPrompt, StarterMessages[]
+- [ ] Create template library per organization
+- [ ] UI to start conversation from template
+- [ ] Track template usage for analytics
+- [ ] Allow template sharing within org
+- [ ] Create template management UI for admins
+
+================================================================================
+## PHASE E5: Content & Knowledge Management
+================================================================================
+
+### Task E5.1: File Attachments
+Priority: HIGH
+Description: Upload PDFs, images, and documents for AI to reference.
+             Enables context-rich conversations with document analysis.
+
+Implementation Tasks:
+- [ ] Configure Azure Blob Storage for file storage
+- [ ] Create model: src/Models/Attachment.cs
+  - Properties: Id, ConversationId, FileName, ContentType, SizeBytes, BlobUrl, UploadedAt
+- [ ] Create service: src/Services/IAttachmentService.cs
+- [ ] Implement file upload component with drag-and-drop
+- [ ] Virus scanning via Microsoft Defender for Storage
+- [ ] File type validation (allowlist)
+- [ ] Size limits per org/user
+- [ ] Pass file content/URL to AI agent
+- [ ] Display attachments in conversation UI
+
+### Task E5.2: Knowledge Base / RAG
+Priority: HIGH
+Description: Organization-specific documents for Retrieval Augmented Generation.
+             Core differentiator for enterprise AI applications.
+
+Implementation Tasks:
+- [ ] Create knowledge base model: src/Models/KnowledgeBase.cs
+  - Properties: Id, OrganizationId, Name, Description, DocumentCount
+- [ ] Create document model: src/Models/KnowledgeDocument.cs
+  - Properties: Id, KnowledgeBaseId, FileName, Content, Embeddings, UploadedAt
+- [ ] Integrate Azure AI Search for vector search
+- [ ] Implement document chunking and embedding
+- [ ] Create service: src/Services/IRagService.cs
+  - IndexDocumentAsync(document)
+  - SearchAsync(query, knowledgeBaseId, topK)
+- [ ] Inject relevant context into AI prompts
+- [ ] Create knowledge base management UI
+- [ ] Support file types: PDF, DOCX, TXT, MD, HTML
+- [ ] Track which documents were used in responses (citations)
+
+### Task E5.3: Conversation Sharing
+Priority: MEDIUM
+Description: Share specific conversations with team members.
+             Enables collaboration and knowledge sharing.
+
+Implementation Tasks:
+- [ ] Add to Conversation model: SharedWithUserIds: string[]
+- [ ] Create share dialog component
+- [ ] Implement "view only" shared access
+- [ ] Email notification when conversation shared
+- [ ] Revoke sharing capability
+- [ ] Shared conversations appear in user's sidebar
+- [ ] Audit log for sharing actions
+
+### Task E5.4: Content Moderation
+Priority: HIGH
+Description: Block inappropriate content in user input and AI output.
+             Protects against misuse and ensures safe AI interactions.
+
+Implementation Tasks:
+- [ ] Integrate Azure AI Content Safety
+- [ ] Define moderation categories: Hate, Violence, Sexual, Self-harm
+- [ ] Configure thresholds per organization
+- [ ] Pre-screen user messages before sending to AI
+- [ ] Post-screen AI responses before displaying
+- [ ] Log moderation events for review
+- [ ] Admin UI to review flagged content
+- [ ] Allow appeals process for false positives
+
+================================================================================
+## PHASE E6: Compliance & Governance
+================================================================================
+
+### Task E6.1: Comprehensive Audit Trail
+Priority: HIGH
+Description: Immutable log of all user and system actions.
+             Required for SOC2, ISO27001, HIPAA, and enterprise audits.
+
+Implementation Tasks:
+- [ ] Define audit event schema:
+  - Timestamp, UserId, OrganizationId, Action, Resource, ResourceId
+  - OldValue, NewValue (for changes)
+  - IpAddress, UserAgent, RequestId
+- [ ] Create dedicated Cosmos DB container with immutable policy
+- [ ] Automatically log all create/update/delete operations
+- [ ] Log all admin actions
+- [ ] Create audit log query API
+- [ ] Create audit log viewer UI (admin only)
+- [ ] Export to compliance systems (CSV, JSON)
+- [ ] Configure retention (minimum 7 years for financial)
+
+### Task E6.2: Data Classification
+Priority: MEDIUM
+Description: Tag conversations and messages as sensitive/confidential.
+             Enables data governance and handling policies.
+
+Implementation Tasks:
+- [ ] Define classification levels: Public, Internal, Confidential, Restricted
+- [ ] Add to Conversation model: Classification: string
+- [ ] Auto-classify based on content patterns (PII detection)
+- [ ] Manual classification by users
+- [ ] Enforce handling policies per classification:
+  - Restricted: No export, no sharing, shorter retention
+- [ ] Visual indicator of classification in UI
+- [ ] Report on classification distribution
+
+### Task E6.3: Data Loss Prevention (DLP)
+Priority: HIGH
+Description: Block PII, secrets, and sensitive data from being sent to AI.
+             Critical for enterprises handling customer data.
+
+Implementation Tasks:
+- [ ] Integrate Azure Purview / Microsoft DLP
+- [ ] Define DLP patterns:
+  - PII: SSN, credit cards, phone numbers, emails
+  - Secrets: API keys, passwords, connection strings
+  - Custom: Organization-defined patterns
+- [ ] Scan messages before sending to AI
+- [ ] Options: Block, Redact, Warn
+- [ ] Log DLP violations
+- [ ] Admin UI to manage DLP policies
+- [ ] Allow per-org custom patterns
+
+### Task E6.4: Legal Hold
+Priority: MEDIUM
+Description: Prevent deletion of specific conversations for legal/regulatory purposes.
+             Required for e-discovery and litigation support.
+
+Implementation Tasks:
+- [ ] Add to Conversation model: LegalHoldId: string?
+- [ ] Create model: src/Models/LegalHold.cs
+  - Properties: Id, Name, Reason, CreatedBy, CreatedAt, UserIds[], DateRange
+- [ ] Prevent deletion of held conversations
+- [ ] Hide from user's delete capability
+- [ ] Global admin can manage legal holds
+- [ ] Export held conversations for legal team
+- [ ] Notify users their data is under hold (optional)
+
+### Task E6.5: Compliance Reports
+Priority: MEDIUM
+Description: Generate reports for SOC2, GDPR, HIPAA readiness.
+             Demonstrates compliance posture to auditors.
+
+Implementation Tasks:
+- [ ] Define report types:
+  - Access Control Report: Who has access to what
+  - Activity Report: Actions performed in period
+  - Data Inventory: What data exists, where, retention
+  - Security Events: Anomalies, incidents, investigations
+- [ ] Create report generation service
+- [ ] Schedule automated reports (weekly, monthly)
+- [ ] Create report viewer UI
+- [ ] Export to PDF, CSV
+- [ ] Document compliance controls mapping
+
+================================================================================
+## PHASE E7: Performance & Reliability
+================================================================================
+
+### Task E7.1: Response Caching
+Priority: MEDIUM
+Description: Cache common AI responses to reduce latency and costs.
+             Improves performance for frequently asked questions.
+
+Implementation Tasks:
+- [ ] Identify cacheable responses (generic, org-specific FAQ)
+- [ ] Implement semantic similarity matching for cache lookup
+- [ ] Configure cache TTL per response type
+- [ ] Store in Redis or Cosmos DB
+- [ ] Track cache hit rate metrics
+- [ ] Allow orgs to manage their cache
+- [ ] Invalidate cache on knowledge base updates
+
+### Task E7.2: Queue-Based Processing
+Priority: MEDIUM
+Description: Handle traffic spikes gracefully with async processing.
+             Prevents system overload during peak usage.
+
+Implementation Tasks:
+- [ ] Integrate Azure Service Bus or Queue Storage
+- [ ] Queue AI requests during high load
+- [ ] Implement backpressure mechanisms
+- [ ] Show queue position to users
+- [ ] Priority queuing for premium orgs
+- [ ] Dead letter handling for failed requests
+- [ ] Monitor queue depth metrics
+
+### Task E7.3: Multi-Region Failover
+Priority: HIGH
+Description: Active-active or active-passive disaster recovery.
+             Required for enterprise SLA guarantees.
+
+Implementation Tasks:
+- [ ] Deploy to multiple Azure regions (primary + secondary)
+- [ ] Configure Azure Traffic Manager for DNS failover
+- [ ] Replicate Cosmos DB across regions (multi-region write)
+- [ ] Replicate Azure Blob Storage (GRS)
+- [ ] Document RTO/RPO targets
+- [ ] Implement health probes for failover triggering
+- [ ] Create DR runbooks and test procedures
+- [ ] Conduct periodic DR drills
+
+### Task E7.4: Graceful Degradation
+Priority: MEDIUM
+Description: Fallback behavior when AI service or dependencies unavailable.
+             Ensures partial functionality during outages.
+
+Implementation Tasks:
+- [ ] Define degraded modes:
+  - AI unavailable: Show cached responses, queue requests
+  - Cosmos DB unavailable: Read from cache, queue writes
+  - Auth unavailable: Allow cached sessions to continue
+- [ ] Implement circuit breaker pattern
+- [ ] Show degradation status to users
+- [ ] Auto-recover when services restore
+- [ ] Log degradation events
+- [ ] Test degradation scenarios regularly
+
+### Task E7.5: Load Shedding
+Priority: MEDIUM
+Description: Protect system during overload by rejecting excess requests.
+             Prevents cascading failures during traffic spikes.
+
+Implementation Tasks:
+- [ ] Implement adaptive rate limiting
+- [ ] Prioritize authenticated users over anonymous
+- [ ] Prioritize paid orgs over free tier
+- [ ] Return 503 with Retry-After header
+- [ ] Monitor rejection rate metrics
+- [ ] Alert on sustained load shedding
+- [ ] Document load shedding behavior for customers
+
+================================================================================
+## PHASE E8: Developer Experience
+================================================================================
+
+### Task E8.1: Sandbox Environment
+Priority: MEDIUM
+Description: Test organization for customers to try features before production.
+             Enables safe experimentation and training.
+
+Implementation Tasks:
+- [ ] Create sandbox org provisioning service
+- [ ] Auto-provision sandbox on sign-up (trial)
+- [ ] Pre-populate with sample conversations
+- [ ] Reset sandbox on demand
+- [ ] Limited quotas for sandbox
+- [ ] Clear "Sandbox" indicator in UI
+- [ ] Prevent sandbox data migration to production
+
+### Task E8.2: API Documentation
+Priority: MEDIUM
+Description: Comprehensive OpenAPI/Swagger documentation with examples.
+             Enables developers to integrate quickly.
+
+Implementation Tasks:
+- [ ] Enable Swagger UI in development
+- [ ] Add XML documentation to all API methods
+- [ ] Provide request/response examples
+- [ ] Document authentication methods
+- [ ] Include error code reference
+- [ ] Create getting started guide
+- [ ] Host interactive API playground
+
+### Task E8.3: SDK Libraries
+Priority: LOW
+Description: Native SDKs for .NET, Python, JavaScript.
+             Reduces integration effort for developers.
+
+Implementation Tasks:
+- [ ] Generate client SDKs from OpenAPI spec
+- [ ] Publish .NET SDK to NuGet
+- [ ] Publish Python SDK to PyPI
+- [ ] Publish JavaScript/TypeScript SDK to npm
+- [ ] Include SDK usage examples
+- [ ] Maintain SDK version compatibility
+- [ ] Create SDK-specific documentation
+
+### Task E8.4: Changelog & Announcements
+Priority: LOW
+Description: In-app notifications for new features and changes.
+             Keeps users informed of product updates.
+
+Implementation Tasks:
+- [ ] Create announcement model: src/Models/Announcement.cs
+- [ ] Create announcement banner component
+- [ ] Target announcements by org, role, or user segment
+- [ ] Track announcement read status
+- [ ] Create announcement management UI (admin)
+- [ ] Generate release notes from commits
+- [ ] Email digest option for major updates
+
+================================================================================
+## PRIORITY SUMMARY
+================================================================================
+
+### Tier 1: Required for Enterprise Sales (Must Have)
+- E1.1: Role-Based Access Control (RBAC)
+- E1.2: Row-Level Security (RLS)
+- E1.6: Security Event Logging
+- E2.1: Distributed Tracing
+- E3.1: Quota Management
+- E3.5: Data Residency
+- E4.2: REST API
+- E5.1: File Attachments
+- E5.2: Knowledge Base / RAG
+- E5.4: Content Moderation
+- E6.1: Comprehensive Audit Trail
+- E6.3: Data Loss Prevention (DLP)
+- E7.3: Multi-Region Failover
+
+### Tier 2: Expected by Enterprise Customers (Should Have)
+- E1.3: IP Allowlisting
+- E1.4: Session Management
+- E1.5: API Key Management
+- E2.2: SLA Monitoring
+- E2.3: Alerting Rules
+- E2.5: Feature Flags
+- E3.2: Billing Integration
+- E3.4: White-Labeling
+- E4.1: Webhooks
+- E4.3: SSO/SCIM Provisioning
+- E4.5: Conversation Templates
+- E5.3: Conversation Sharing
+- E6.2: Data Classification
+- E6.4: Legal Hold
+- E6.5: Compliance Reports
+- E7.1: Response Caching
+- E7.2: Queue-Based Processing
+- E7.4: Graceful Degradation
+- E7.5: Load Shedding
+- E8.1: Sandbox Environment
+- E8.2: API Documentation
+
+### Tier 3: Nice to Have (Could Have)
+- E2.4: Admin Impersonation
+- E3.3: Organization Hierarchy
+- E4.4: Plugin System
+- E8.3: SDK Libraries
+- E8.4: Changelog & Announcements
+
+================================================================================
+## RECOMMENDED IMPLEMENTATION ORDER
+================================================================================
+
+Phase 1 (Foundation): E1.1, E1.2, E1.6, E3.1, E6.1
+Phase 2 (Core Enterprise): E3.5, E5.4, E6.3, E4.2, E2.1
+Phase 3 (Knowledge & Content): E5.1, E5.2, E4.1, E4.5
+Phase 4 (Reliability): E7.3, E7.4, E2.2, E2.3
+Phase 5 (Advanced Security): E1.3, E1.4, E1.5, E4.3
+Phase 6 (Compliance): E6.2, E6.4, E6.5
+Phase 7 (Monetization): E3.2, E3.4, E2.5
+Phase 8 (Developer Experience): E8.1, E8.2, E8.3
+Phase 9 (Advanced Features): E3.3, E4.4, E5.3, E2.4, E8.4

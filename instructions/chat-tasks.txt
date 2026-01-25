@@ -8,6 +8,293 @@
 ✓ Dependency injection configured
 ✓ Basic Blazor components structure (Layout, Pages)
 
+================================================================================
+## PHASE A: Architecture Improvements (Priority - Do Before New Features)
+================================================================================
+NOTE: These architectural improvements should be implemented BEFORE continuing with 
+Phase 4 incomplete tasks (C4.3.5, C4.4) to ensure clean, scalable implementation.
+
+### SimpleL7Proxy Integration (Assumed Backend)
+BlazorChat will use Microsoft's SimpleL7Proxy (https://github.com/microsoft/SimpleL7Proxy)
+as the AI gateway. This OSS project provides significant infrastructure benefits:
+
+**What SimpleL7Proxy Provides Out-of-Box**:
+- ✅ Token extraction from SSE streams (Prompt_Tokens, Completion_Tokens, Total_Tokens)
+- ✅ Application Insights integration with custom dimensions
+- ✅ Event Hub streaming for high-volume telemetry
+- ✅ Distributed request correlation (MID, ParentId, OperationId)
+- ✅ Circuit breaker pattern for backend resilience
+- ✅ Multi-backend load balancing and failover
+- ✅ Priority queues for user tiering (Gold/Silver)
+- ✅ Retry logic with exponential backoff
+- ✅ Health check endpoints
+
+**Impact on BlazorChat Tasks**:
+- C4.4 (Usage Tracking): SIMPLIFIED - Query App Insights instead of building token extraction
+- A2 (MediatR Events): OPTIONAL - Proxy handles telemetry, use events only for app-level concerns
+- E2.1 (Distributed Tracing): COVERED - Built-in request correlation
+- E3.1 (Quota Management): EASIER - Proxy has priority queues
+- E7.4 (Graceful Degradation): SIMPLIFIED - Circuit breaker built-in
+
+### Task A0: SimpleL7Proxy Integration ⭐ NEW
+Priority: HIGH (Foundation - enables simplified token tracking)
+Goal: Deploy SimpleL7Proxy as AI gateway, route all AI traffic through it.
+
+#### A0.1: Deployment Strategy
+- [ ] Option A: Sidecar container in same Container App (recommended for single-tenant)
+- [ ] Option B: Shared gateway for all orgs (recommended for multi-tenant)
+- [ ] Configure deployment in /deploy/main.bicep
+
+#### A0.2: Configure SimpleL7Proxy
+- [ ] Set backend host: Azure AI Foundry endpoint
+- [ ] Enable OpenAI processor: `processor=OpenAI` (extracts token usage)
+- [ ] Enable Managed Identity: `usemi=true`
+- [ ] Configure App Insights: `APPINSIGHTS_CONNECTIONSTRING`
+- [ ] Configure health probes for Container Apps
+
+#### A0.3: Update AIFoundryService to Use Proxy
+- [ ] Change AIFoundry:Endpoint to point to SimpleL7Proxy (localhost:8080 for sidecar)
+- [ ] Add correlation headers (x-request-id) for tracing
+- [ ] Remove direct Azure AI Foundry calls
+- [ ] Test streaming responses through proxy
+
+#### A0.4: Configure Multi-Org Routing (if shared gateway)
+- [ ] Pass organization ID in request header (x-org-id)
+- [ ] Configure proxy to route to org-specific backends (optional)
+- [ ] Enable priority queues per org tier
+
+#### A0.5: Verify Telemetry Flow
+- [ ] Confirm token metrics appear in App Insights
+- [ ] Query: `requests | where customDimensions contains "Usage.Total_Tokens"`
+- [ ] Verify correlation IDs match between app and proxy logs
+
+### Current Architecture Issues Identified:
+- **Fat Component**: Chat.razor has 500+ lines, handles UI + business logic + coordination
+- **No Domain Layer**: Business rules scattered across services and components  
+- **Tight Coupling**: Components directly depend on infrastructure services
+- **No Event System**: Cross-cutting concerns require manual calls everywhere
+- **Stateful Singletons**: AIFoundryService holds in-memory state, doesn't scale
+- **No Background Jobs**: Everything is request/response, no async processing
+
+### Task A1: Application Service Layer ⚠️
+Priority: HIGH (Foundation for all future features)
+Goal: Create single entry point for chat operations, extract business logic from Chat.razor.
+
+**Current Problem**:
+```
+Chat.razor → CosmosDbService, AIFoundryService, TelemetryService, 
+             OrganizationService, ContextManager (5+ direct dependencies)
+```
+
+**Target Architecture**:
+```
+Chat.razor → IChatApplicationService → Domain Services → Infrastructure
+                                    ↳ Raises Domain Events
+```
+
+#### A1.1: Create Chat Application Service
+- [ ] Create interface: src/Services/Application/IChatApplicationService.cs
+  ```csharp
+  public interface IChatApplicationService
+  {
+      Task<Conversation> CreateConversationAsync(string userId, string orgId, string? title = null);
+      Task<Conversation?> GetConversationAsync(string conversationId, string userId);
+      Task<IEnumerable<Conversation>> GetUserConversationsAsync(string userId);
+      Task<IEnumerable<Message>> GetMessagesAsync(string conversationId, string userId);
+      IAsyncEnumerable<string> SendMessageAsync(string conversationId, string userId, string message, CancellationToken ct);
+      Task DeleteConversationAsync(string conversationId, string userId);
+      Task ResumeConversationAsync(string conversationId, string userId); // Thread rehydration
+  }
+  ```
+- [ ] Create implementation: src/Services/Application/ChatApplicationService.cs
+- [ ] Encapsulate: authorization checks, validation, Cosmos DB calls, AI calls, telemetry
+- [ ] Register as scoped service in Program.cs
+
+#### A1.2: Refactor Chat.razor to Use Application Service
+- [ ] Replace 5+ service injections with single IChatApplicationService
+- [ ] Move all business logic out of Chat.razor
+- [ ] Keep Chat.razor focused on: UI rendering, user input handling, state display
+- [ ] Target: Reduce Chat.razor from ~500 lines to ~150 lines
+
+#### A1.3: Create Organization Application Service (Optional)
+- [ ] Create interface: src/Services/Application/IOrganizationApplicationService.cs
+- [ ] Consolidate org-related operations from Controller + Services
+- [ ] Prepare for Admin UI implementation
+
+### Task A2: Domain Events with MediatR
+Priority: MEDIUM (Optional with SimpleL7Proxy - proxy handles AI telemetry)
+Goal: Decouple cross-cutting concerns using event-driven architecture.
+
+**With SimpleL7Proxy**: Token tracking telemetry is handled by the proxy.
+MediatR is still useful for APP-LEVEL events (conversation created, user actions, audit).
+Can be deferred if time-constrained - proxy covers the critical AI observability.
+
+**Current Problem**:
+```csharp
+// Chat.razor has to remember ALL places to call
+await CosmosDbService.SaveMessageAsync(message);
+TelemetryService.TrackMessageSent(...);
+// TODO: Track usage - easy to forget!
+// TODO: Check quota - easy to forget!
+// TODO: Audit log - easy to forget!
+```
+
+**Target Architecture**:
+```csharp
+// Publish event once, handlers react independently
+await _mediator.Publish(new MessageSentEvent(message, conversationId, userId));
+// Handlers: TelemetryHandler, UsageTrackingHandler, QuotaCheckHandler, AuditHandler
+```
+
+#### A2.1: Add MediatR Infrastructure
+- [ ] Add NuGet package: MediatR
+- [ ] Add NuGet package: MediatR.Extensions.Microsoft.DependencyInjection
+- [ ] Register MediatR in Program.cs: `builder.Services.AddMediatR(cfg => ...)`
+- [ ] Create folder structure: src/Events/, src/Events/Handlers/
+
+#### A2.2: Define Core Domain Events
+- [ ] Create event: src/Events/MessageSentEvent.cs
+  - Properties: Message, ConversationId, UserId, OrganizationId, Timestamp
+- [ ] Create event: src/Events/AIResponseReceivedEvent.cs
+  - Properties: ConversationId, ResponseText, TokensUsed, ResponseTimeMs, ModelName
+- [ ] Create event: src/Events/ConversationCreatedEvent.cs
+- [ ] Create event: src/Events/ConversationDeletedEvent.cs
+- [ ] Create event: src/Events/ConversationResumedEvent.cs (for rehydration tracking)
+
+#### A2.3: Migrate Telemetry to Event Handlers
+- [ ] Create handler: src/Events/Handlers/TelemetryEventHandler.cs
+- [ ] Move TelemetryService.TrackMessageSent() calls to handler
+- [ ] Move TelemetryService.TrackAIResponseTime() calls to handler
+- [ ] Remove direct TelemetryService calls from Chat.razor/ChatApplicationService
+
+#### A2.4: Prepare for Usage Tracking Integration
+- [ ] Create handler stub: src/Events/Handlers/UsageTrackingEventHandler.cs
+- [ ] Will be implemented fully in Task C4.4
+- [ ] Handler reacts to: MessageSentEvent, AIResponseReceivedEvent, ConversationResumedEvent
+
+### Task A3: Distributed Cache with Redis ⚠️
+Priority: HIGH (Solves thread persistence AND enables horizontal scaling)
+Goal: Externalize session state from in-memory dictionaries.
+
+**Current Problem**:
+```csharp
+// AIFoundryService.cs - state lost on restart, doesn't scale
+private readonly ConcurrentDictionary<string, AgentThread> _conversationThreads = new();
+```
+
+**Target Architecture**:
+```
+┌─────────────┐     ┌─────────────┐     ┌─────────────┐
+│  App Node 1 │────▶│ Azure Redis │◀────│  App Node 2 │
+└─────────────┘     │   Cache     │     └─────────────┘
+                    └─────────────┘
+```
+
+#### A3.1: Add Redis Infrastructure
+- [ ] Add NuGet package: Microsoft.Extensions.Caching.StackExchangeRedis
+- [ ] Add NuGet package: StackExchange.Redis
+- [ ] Add configuration in appsettings.json:
+  ```json
+  "Redis": {
+    "ConnectionString": "<your-redis-connection-string>",
+    "InstanceName": "BlazorChat:"
+  }
+  ```
+- [ ] Register IDistributedCache in Program.cs (Redis in prod, InMemory for dev)
+- [ ] Create Azure Cache for Redis resource (or use local Redis for dev)
+
+#### A3.2: Create Thread State Service
+- [ ] Create interface: src/Services/IThreadStateService.cs
+  ```csharp
+  public interface IThreadStateService
+  {
+      Task<string?> GetThreadIdAsync(string conversationId);
+      Task SetThreadIdAsync(string conversationId, string threadId, TimeSpan? expiry = null);
+      Task RemoveThreadIdAsync(string conversationId);
+      Task<bool> ThreadExistsAsync(string conversationId);
+  }
+  ```
+- [ ] Create implementation: src/Services/ThreadStateService.cs (uses IDistributedCache)
+- [ ] Store: conversationId → { threadId, createdAt, expiresAt }
+- [ ] Default expiry: 24 hours (matches Azure AI thread lifetime)
+
+#### A3.3: Refactor AIFoundryService to Use ThreadStateService
+- [ ] Remove: `ConcurrentDictionary<string, AgentThread> _conversationThreads`
+- [ ] Inject: IThreadStateService
+- [ ] On new thread creation: call `SetThreadIdAsync()`
+- [ ] On message send: call `GetThreadIdAsync()` first
+- [ ] This naturally implements Task C4.3.5 (Thread Persistence)!
+
+#### A3.4: Add Rate Limiting State to Redis (Optional)
+- [ ] Move rate limiting counters to Redis for multi-instance support
+- [ ] Enables accurate rate limiting across load-balanced instances
+
+### Task A4: Background Job Infrastructure
+Priority: MEDIUM (Needed for usage aggregation, webhooks, cleanup)
+Goal: Enable async processing outside request/response cycle.
+
+#### A4.1: Add Background Job Framework
+- [ ] Option A: Azure Service Bus + Worker (production-ready)
+- [ ] Option B: Hangfire (simpler, built-in dashboard)
+- [ ] Option C: .NET BackgroundService (simplest, single-instance only)
+- [ ] Recommended: Start with BackgroundService, migrate to Service Bus later
+
+#### A4.2: Create Job Infrastructure
+- [ ] Create folder: src/Jobs/
+- [ ] Create base class: src/Jobs/BaseBackgroundJob.cs
+- [ ] Create job queue interface: src/Services/IJobQueue.cs
+
+#### A4.3: Define Initial Jobs
+- [ ] Job: DailyUsageAggregationJob - Rollup conversation usage to daily summaries
+- [ ] Job: DataRetentionCleanupJob - Delete old soft-deleted records
+- [ ] Job: ThreadExpirationCleanupJob - Clean up expired thread references
+- [ ] Job: WebhookDeliveryJob - Retry failed webhook deliveries (future)
+
+### Task A5: Repository Pattern Refactoring
+Priority: LOW (Optional but improves testability)
+Goal: Separate data access from business logic in CosmosDbService.
+
+#### A5.1: Extract Repository Interfaces
+- [ ] Create interface: src/Repositories/IConversationRepository.cs
+- [ ] Create interface: src/Repositories/IMessageRepository.cs
+- [ ] Create interface: src/Repositories/IOrganizationRepository.cs
+- [ ] Create interface: src/Repositories/IUsageRepository.cs
+
+#### A5.2: Implement Repositories
+- [ ] Create: src/Repositories/CosmosConversationRepository.cs
+- [ ] Create: src/Repositories/CosmosMessageRepository.cs
+- [ ] Move pure CRUD operations from CosmosDbService to repositories
+- [ ] Keep CosmosDbService as facade or deprecate
+
+#### A5.3: Update Service Registrations
+- [ ] Register repositories as scoped services
+- [ ] Update ChatApplicationService to use repositories
+- [ ] Create mock repositories for unit testing
+
+================================================================================
+## Architecture Implementation Order
+================================================================================
+
+**Recommended Sequence**:
+```
+Week 1: A1 (Application Service) + A2 (MediatR)
+        └── Chat.razor becomes thin, events enable clean tracking
+
+Week 2: A3 (Redis) 
+        └── Solves thread persistence, enables scaling
+        └── C4.3.5 becomes trivial to implement
+
+Week 3: C4.3.5 (Thread Persistence) + C4.4 (Usage Tracking)
+        └── Built on solid architectural foundation
+        └── Usage tracking uses event handlers from A2
+
+Week 4: A4 (Background Jobs) + Usage aggregation
+        └── Daily rollups, cleanup jobs
+
+Future: A5 (Repository Pattern) - when adding unit tests
+```
+
+================================================================================
 ## PHASE 1: Data Layer Migration (Cosmos DB)
 
 ### Task C1.1: Install Cosmos DB Dependencies ✓
@@ -271,46 +558,39 @@ Thread valid?    Track as "rehydrationTokens"
 ### Task C4.4: Add Usage Tracking
 Goal: Track AI usage metrics for cost management, analytics, and quota enforcement.
 
-#### C4.4.1: Storage Strategy (Cosmos DB)
-**Container**: `usage` (new container)
-**Partition Key**: `/organizationId` (enables per-org billing and analytics)
-**Hierarchical Partition Key (HPK)**: Consider `/organizationId/userId` for large orgs
+**🎯 SIMPLIFIED BY SimpleL7Proxy**: The proxy automatically extracts token usage from
+streaming responses and logs to Application Insights. BlazorChat does NOT need to:
+- Parse SSE streams for token counts
+- Build custom token extraction logic
+- Instrument every AI call manually
 
-**Document Types** (stored in same container with `type` discriminator):
-1. **ConversationUsage** - Aggregated usage per conversation
-2. **DailyUsageSummary** - Daily rollup per user/org for dashboards
-3. **AIRequestLog** - Individual AI request details (optional, high volume)
+**What SimpleL7Proxy Provides** (via App Insights custom dimensions):
+- `Usage.Prompt_Tokens` - Input tokens per request
+- `Usage.Completion_Tokens` - Output tokens per request  
+- `Usage.Total_Tokens` - Total billable tokens
+- Request duration, status codes, backend host, retry counts
 
-#### C4.4.2: Create Usage Models
+**What BlazorChat Still Needs to Build**:
+- Link proxy telemetry to conversations (via correlation ID)
+- Aggregate daily/monthly summaries from App Insights data
+- Build usage dashboard UI
+- Quota enforcement (check limits before allowing requests)
+
+#### C4.4.1: Storage Strategy (Simplified)
+**Primary Source**: Application Insights (token data from SimpleL7Proxy)
+**Secondary Storage**: Cosmos DB `usage` container (for aggregations and quotas)
+**Partition Key**: `/organizationId`
+
+**Document Types** (only aggregations needed - raw data in App Insights):
+1. **DailyUsageSummary** - Daily rollup per user/org for dashboards
+2. **QuotaStatus** - Current quota consumption for enforcement
+3. ~~**AIRequestLog**~~ - NOT NEEDED, App Insights has raw request data
+
+#### C4.4.2: Create Usage Models (Simplified with SimpleL7Proxy)
 - [ ] Create model: src/Models/AIUsage.cs
   ```
-  ConversationUsage:
-  - id: string (conversationId)
-  - type: "conversationUsage"
-  - organizationId: string (partition key)
-  - userId: string
-  - conversationId: string
-  
-  # User-billable tokens (actual new content)
-  - userInputTokens: int          # User's new messages
-  - assistantOutputTokens: int    # AI's new responses
-  - totalBillableTokens: int      # userInput + assistantOutput
-  
-  # Operational tokens (system overhead - not billed to user)
-  - rehydrationInputTokens: int   # Tokens for context replay on resume
-  - rehydrationCount: int         # Number of times thread was rehydrated
-  
-  # Cache efficiency tracking
-  - promptCacheHits: int          # Requests that hit prompt cache
-  - promptCacheMisses: int        # Requests without cache benefit
-  - cachedTokens: int             # Tokens served from cache (50% cost)
-  
-  - totalRequests: int
-  - estimatedUserCostUsd: decimal     # Cost for user-billable tokens
-  - estimatedOperationalCostUsd: decimal  # Cost for rehydration (org absorbs)
-  - modelDeployment: string
-  - createdAt: DateTime
-  - updatedAt: DateTime
+  # NOTE: Raw token data comes from App Insights (via SimpleL7Proxy)
+  # These models are for AGGREGATIONS and QUOTA tracking only
   
   DailyUsageSummary:
   - id: string (orgId_userId_date)
@@ -318,6 +598,28 @@ Goal: Track AI usage metrics for cost management, analytics, and quota enforceme
   - organizationId: string (partition key)
   - userId: string
   - date: string (yyyy-MM-dd)
+  - promptTokens: int             # Aggregated from App Insights
+  - completionTokens: int         # Aggregated from App Insights
+  - totalTokens: int
+  - requestCount: int
+  - estimatedCostUsd: decimal
+  - lastUpdated: DateTime
+  
+  QuotaStatus:
+  - id: string (orgId or orgId_userId)
+  - type: "quotaStatus"
+  - organizationId: string (partition key)
+  - userId: string?               # null for org-level quota
+  - quotaPeriod: string           # "daily", "monthly"
+  - tokenLimit: int
+  - tokensUsed: int
+  - requestLimit: int
+  - requestsUsed: int
+  - resetAt: DateTime
+  - isExceeded: bool
+  
+  # ConversationUsage - OPTIONAL, can derive from App Insights query
+  # Only store if you need fast lookups without querying App Insights
   
   # Billable vs operational breakdown
   - userInputTokens: int
@@ -351,37 +653,77 @@ Goal: Track AI usage metrics for cost management, analytics, and quota enforceme
   - agentThreadId: string?         # For thread persistence (see C4.3.5)
   - agentThreadCreatedAt: DateTime?
 
-#### C4.4.4: Create Usage Service
+#### C4.4.4: Create Usage Service (Simplified with SimpleL7Proxy)
 - [ ] Create interface: src/Services/IUsageTrackingService.cs
 - [ ] Create service: src/Services/UsageTrackingService.cs
-  - TrackUserRequestAsync(conversationId, inputTokens, outputTokens, modelName, responseTimeMs, cacheHit)
-  - TrackRehydrationAsync(conversationId, rehydrationTokens, messageCount) # Separate tracking!
-  - GetConversationUsageAsync(conversationId)
-  - GetUserDailySummaryAsync(userId, date)
-  - GetOrganizationUsageAsync(orgId, startDate, endDate)
-  - GetRehydrationCostAsync(orgId, startDate, endDate) # Org operational cost report
-  - UpdateDailySummaryAsync() - called after each request
+
+**Query Methods** (read from App Insights via Azure Monitor Query SDK):
+  - GetConversationUsageAsync(conversationId) → query App Insights by correlation ID
+  - GetUserUsageAsync(userId, startDate, endDate) → aggregate from App Insights
+  - GetOrganizationUsageAsync(orgId, startDate, endDate) → aggregate from App Insights
+  
+**Aggregation Methods** (write to Cosmos DB for fast dashboard access):
+  - SyncDailySummaryAsync(orgId, date) → pull from App Insights, store in Cosmos
+  - Background job runs hourly/daily to keep summaries fresh
+  
+**Quota Methods** (real-time enforcement):
+  - CheckQuotaAsync(orgId, userId) → check against QuotaStatus in Cosmos
+  - IncrementUsageAsync(orgId, userId, tokens) → update QuotaStatus
+  - ResetQuotaAsync(orgId, userId) → called by scheduled job
+  
+**What's NOT Needed** (handled by SimpleL7Proxy):
+  - ~~TrackUserRequestAsync~~ - Proxy logs to App Insights automatically
+  - ~~Token extraction from responses~~ - Proxy parses SSE streams
+  - ~~Manual App Insights TrackEvent calls~~ - Proxy handles telemetry
+  
 - [ ] Register service as singleton in Program.cs
+- [ ] Add NuGet: Azure.Monitor.Query (for querying App Insights)
 
-#### C4.4.5: Integrate with AIFoundryService
-- [ ] Capture token counts from AI response (Azure.AI.Projects SDK provides usage info)
-- [ ] Call UsageTrackingService.TrackAIRequestAsync after each AI response
-- [ ] Handle tracking failures gracefully (don't fail chat if tracking fails)
+#### C4.4.5: Integrate with AIFoundryService (Simplified with SimpleL7Proxy)
+**Token Capture**: ✅ HANDLED BY PROXY - No code changes needed in AIFoundryService!
 
-#### C4.4.6: Application Insights Integration
-- [ ] Log custom metrics to Application Insights:
-  - ai.tokens.input.user (counter) - billable input tokens
-  - ai.tokens.output.user (counter) - billable output tokens
-  - ai.tokens.rehydration (counter) - operational overhead tokens
-  - ai.tokens.cached (counter) - tokens served from cache
-  - ai.request.duration (histogram)
-  - ai.request.cost.user (counter) - user-billable cost
-  - ai.request.cost.operational (counter) - rehydration cost
-  - ai.cache.hit.rate (gauge) - prompt cache efficiency
-  - ai.rehydration.count (counter) - thread rehydration events
-- [ ] Create custom dimensions: organizationId, userId, modelDeployment, isRehydration
-- [ ] Enable correlation with existing TelemetryService
-- [ ] Create Azure Monitor workbook for cost breakdown (user vs operational)
+SimpleL7Proxy automatically extracts tokens from SSE responses and logs to App Insights.
+BlazorChat just needs to pass correlation headers for linking requests to conversations.
+
+- [ ] Add correlation header to AI requests: `x-request-id: {conversationId}_{messageId}`
+- [ ] Add org header for multi-tenant routing: `x-org-id: {organizationId}`
+- [ ] ~~Capture token counts~~ - Proxy does this automatically
+- [ ] ~~Call TrackAIRequestAsync~~ - Proxy logs to App Insights
+
+**For Quota Enforcement** (still needed in app):
+- [ ] Before sending request, call `UsageTrackingService.CheckQuotaAsync()`
+- [ ] If quota exceeded, return error to user (don't send to AI)
+- [ ] After response, call `UsageTrackingService.IncrementUsageAsync()` to update quota counter
+- [ ] Handle quota increment failures gracefully (log but don't fail chat)
+
+#### C4.4.6: Application Insights Integration (Simplified with SimpleL7Proxy)
+**Metrics Logged by SimpleL7Proxy** (already available in App Insights):
+  - Usage.Prompt_Tokens - input tokens per request
+  - Usage.Completion_Tokens - output tokens per request
+  - Usage.Total_Tokens - total tokens per request
+  - Request duration, status codes, retry counts
+  - Backend host, circuit breaker status
+  
+**BlazorChat Still Needs to Log** (app-level context):
+  - [ ] Correlation header linking request to conversationId
+  - [ ] App-level events: ConversationCreated, UserLogin, QuotaExceeded
+  - [ ] Rehydration events (when thread replay occurs)
+  
+**Kusto Queries for Usage Dashboard**:
+```kusto
+// Total tokens by organization (last 7 days)
+requests
+| where timestamp > ago(7d)
+| where customDimensions contains "Usage.Total_Tokens"
+| extend orgId = tostring(customDimensions["x-org-id"])
+| extend tokens = toint(customDimensions["Usage.Total_Tokens"])
+| summarize TotalTokens=sum(tokens), Requests=count() by orgId
+| order by TotalTokens desc
+```
+
+- [ ] Create Azure Monitor workbook with pre-built queries
+- [ ] Set up alerts for quota thresholds
+- [ ] Create cost estimation dashboard (tokens × price per model)
 
 #### C4.4.7: Cost Estimation Configuration
 - [ ] Add pricing config to appsettings.json:
