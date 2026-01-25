@@ -199,12 +199,255 @@ Goal: Support multiple organizations with isolated configuration and branding sh
 - [x] Register service in Program.cs
 - [x] Integrate into Chat.razor for token limit checking
 
+### Task C4.3.5: Thread Persistence & Rehydration on Conversation Resume (New) ⚠️
+Goal: Restore AI agent context when user resumes a previous conversation without double-billing tokens.
+
+**Problem Identified**:
+- Agent threads are ephemeral (in-memory `_conversationThreads` dictionary)
+- When user resumes conversation, `GetOrAdd()` creates a NEW thread
+- AI agent loses all previous context → poor UX ("Who are you?")
+- Thread also lost on: app restart, server scaling, thread expiration (~24hrs)
+- Message replay consumes tokens AGAIN → double-billing users
+
+**Solution Strategy**: Thread Persistence (Primary) + Message Replay (Fallback)
+
+```
+Resume conversation
+       ↓
+Check Conversation.AgentThreadId exists?
+       ↓
+   ┌───┴───┐
+   Yes     No
+   ↓       ↓
+Try resume    Create new thread
+Azure thread  + Replay messages
+   ↓             ↓
+Thread valid?    Track as "rehydrationTokens"
+   ↓             (separate from user billing)
+   Yes → Use it (0 extra tokens!)
+   No → Fallback to replay
+```
+
+#### C4.3.5.1: Extend Conversation Model for Thread Persistence
+- [ ] Add to src/Models/Conversation.cs:
+  ```
+  agentThreadId: string?       # Azure AI thread ID for resume
+  agentThreadCreatedAt: DateTime?  # Track thread age
+  agentThreadExpiry: DateTime?     # When thread likely expires (~24hrs)
+  ```
+- [ ] Update CosmosDbService to save/retrieve thread ID
+
+#### C4.3.5.2: Implement Thread Resume Logic
+- [ ] Add method to IAIFoundryService: `TryResumeThreadAsync(agentThreadId) → bool`
+- [ ] Update AIFoundryService to check Azure AI for existing thread validity
+- [ ] On successful resume, populate `_conversationThreads` from persisted ID
+- [ ] Update Conversation.AgentThreadId when new thread created
+
+#### C4.3.5.3: Implement Message Replay Fallback
+- [ ] Add method to IAIFoundryService: `RehydrateThreadAsync(conversationId, messages)`
+- [ ] Update AIFoundryService to accept message history for thread initialization
+- [ ] Use ConversationContextManager to trim history to fit token budget
+- [ ] Track rehydration tokens separately (see Task C4.4)
+
+#### C4.3.5.4: Integrate with Chat.razor
+- [ ] Modify `SelectConversation()` to attempt thread resume first
+- [ ] Fallback to message replay if thread expired/invalid
+- [ ] Call rehydration BEFORE user can send messages (prevent race condition)
+- [ ] Show loading state during rehydration
+
+#### C4.3.5.5: Configuration
+- [ ] Add configuration: `AIFoundry:ThreadExpiryHours` (default: 24)
+- [ ] Add configuration: `AIFoundry:RehydrationMessageCount` (default: 20)
+- [ ] Add configuration: `AIFoundry:RehydrationTokenBudget` (default: 8000)
+- [ ] Add configuration: `AIFoundry:EnablePromptCaching` (default: true)
+
+**Edge Cases to Handle**:
+- [ ] Very long conversations (summarize older messages)
+- [ ] Conversations with file attachments (skip or reference only)
+- [ ] Rate limiting during bulk message replay
+- [ ] User sends message before rehydration completes
+- [ ] Thread expired but user hasn't interacted in days
+
 ### Task C4.4: Add Usage Tracking
+Goal: Track AI usage metrics for cost management, analytics, and quota enforcement.
+
+#### C4.4.1: Storage Strategy (Cosmos DB)
+**Container**: `usage` (new container)
+**Partition Key**: `/organizationId` (enables per-org billing and analytics)
+**Hierarchical Partition Key (HPK)**: Consider `/organizationId/userId` for large orgs
+
+**Document Types** (stored in same container with `type` discriminator):
+1. **ConversationUsage** - Aggregated usage per conversation
+2. **DailyUsageSummary** - Daily rollup per user/org for dashboards
+3. **AIRequestLog** - Individual AI request details (optional, high volume)
+
+#### C4.4.2: Create Usage Models
 - [ ] Create model: src/Models/AIUsage.cs
-- [ ] Track tokens used per conversation
-- [ ] Track API calls and costs
-- [ ] Log to Application Insights
-- [ ] Persist to Cosmos DB (optional analytics container)
+  ```
+  ConversationUsage:
+  - id: string (conversationId)
+  - type: "conversationUsage"
+  - organizationId: string (partition key)
+  - userId: string
+  - conversationId: string
+  
+  # User-billable tokens (actual new content)
+  - userInputTokens: int          # User's new messages
+  - assistantOutputTokens: int    # AI's new responses
+  - totalBillableTokens: int      # userInput + assistantOutput
+  
+  # Operational tokens (system overhead - not billed to user)
+  - rehydrationInputTokens: int   # Tokens for context replay on resume
+  - rehydrationCount: int         # Number of times thread was rehydrated
+  
+  # Cache efficiency tracking
+  - promptCacheHits: int          # Requests that hit prompt cache
+  - promptCacheMisses: int        # Requests without cache benefit
+  - cachedTokens: int             # Tokens served from cache (50% cost)
+  
+  - totalRequests: int
+  - estimatedUserCostUsd: decimal     # Cost for user-billable tokens
+  - estimatedOperationalCostUsd: decimal  # Cost for rehydration (org absorbs)
+  - modelDeployment: string
+  - createdAt: DateTime
+  - updatedAt: DateTime
+  
+  DailyUsageSummary:
+  - id: string (orgId_userId_date)
+  - type: "dailySummary"
+  - organizationId: string (partition key)
+  - userId: string
+  - date: string (yyyy-MM-dd)
+  
+  # Billable vs operational breakdown
+  - userInputTokens: int
+  - assistantOutputTokens: int
+  - rehydrationTokens: int
+  - cachedTokens: int
+  
+  - totalRequests: int
+  - rehydrationCount: int
+  - conversationCount: int
+  - resumedConversationCount: int   # Convos that needed rehydration
+  
+  - estimatedUserCostUsd: decimal
+  - estimatedOperationalCostUsd: decimal
+  ```
+
+#### C4.4.3: Extend Existing Models
+- [ ] Extend MessageMetadata (already exists) to include:
+  - inputTokens: int (prompt tokens)
+  - outputTokens: int (completion tokens)
+  - promptCacheHit: bool (Azure AI prompt caching)
+  - cachedTokens: int (tokens served from cache at 50% cost)
+  - isRehydrationMessage: bool (true if sent during context replay)
+  
+- [ ] Extend Conversation model to include usage summary:
+  - totalBillableTokens: int       # User-billable only
+  - totalRehydrationTokens: int    # Operational overhead
+  - totalRequests: int
+  - rehydrationCount: int          # Times this convo was resumed
+  - lastModelUsed: string
+  - agentThreadId: string?         # For thread persistence (see C4.3.5)
+  - agentThreadCreatedAt: DateTime?
+
+#### C4.4.4: Create Usage Service
+- [ ] Create interface: src/Services/IUsageTrackingService.cs
+- [ ] Create service: src/Services/UsageTrackingService.cs
+  - TrackUserRequestAsync(conversationId, inputTokens, outputTokens, modelName, responseTimeMs, cacheHit)
+  - TrackRehydrationAsync(conversationId, rehydrationTokens, messageCount) # Separate tracking!
+  - GetConversationUsageAsync(conversationId)
+  - GetUserDailySummaryAsync(userId, date)
+  - GetOrganizationUsageAsync(orgId, startDate, endDate)
+  - GetRehydrationCostAsync(orgId, startDate, endDate) # Org operational cost report
+  - UpdateDailySummaryAsync() - called after each request
+- [ ] Register service as singleton in Program.cs
+
+#### C4.4.5: Integrate with AIFoundryService
+- [ ] Capture token counts from AI response (Azure.AI.Projects SDK provides usage info)
+- [ ] Call UsageTrackingService.TrackAIRequestAsync after each AI response
+- [ ] Handle tracking failures gracefully (don't fail chat if tracking fails)
+
+#### C4.4.6: Application Insights Integration
+- [ ] Log custom metrics to Application Insights:
+  - ai.tokens.input.user (counter) - billable input tokens
+  - ai.tokens.output.user (counter) - billable output tokens
+  - ai.tokens.rehydration (counter) - operational overhead tokens
+  - ai.tokens.cached (counter) - tokens served from cache
+  - ai.request.duration (histogram)
+  - ai.request.cost.user (counter) - user-billable cost
+  - ai.request.cost.operational (counter) - rehydration cost
+  - ai.cache.hit.rate (gauge) - prompt cache efficiency
+  - ai.rehydration.count (counter) - thread rehydration events
+- [ ] Create custom dimensions: organizationId, userId, modelDeployment, isRehydration
+- [ ] Enable correlation with existing TelemetryService
+- [ ] Create Azure Monitor workbook for cost breakdown (user vs operational)
+
+#### C4.4.7: Cost Estimation Configuration
+- [ ] Add pricing config to appsettings.json:
+  ```json
+  "AIUsage": {
+    "PricingPerMillionTokens": {
+      "gpt-4o": { "input": 2.50, "output": 10.00 },
+      "gpt-4o-mini": { "input": 0.15, "output": 0.60 }
+    },
+    "DefaultModel": "gpt-4o-mini"
+  }
+  ```
+- [ ] Create pricing lookup service for cost calculation
+
+#### C4.4.8: Usage Reporting & Dashboard (Future - Phase 7)
+Goal: Provide visibility into AI usage and costs for users, org admins, and global admins.
+
+**User Views** (see their own usage):
+- [ ] Create page: src/Components/Pages/Account/MyUsage.razor
+  - Daily/weekly/monthly usage summary
+  - Token breakdown (input vs output)
+  - Cost estimates for current billing period
+  - Conversation count and average tokens per conversation
+  - Top 5 most expensive conversations
+
+**Organization Admin Views** (see org-wide usage):
+- [ ] Create page: src/Components/Pages/Admin/OrgUsageDashboard.razor
+  - Aggregate usage across all org users
+  - Per-user breakdown with sortable table
+  - Billable vs operational cost split (rehydration overhead)
+  - Usage trends chart (last 30 days)
+  - Export to CSV functionality
+
+**Global Admin Views** (see all organizations):
+- [ ] Create page: src/Components/Pages/Admin/GlobalUsageDashboard.razor
+  - Per-organization usage comparison
+  - System-wide token consumption
+  - Rehydration cost analysis (optimization opportunity)
+  - Prompt cache hit rate metrics
+  - Anomaly detection (unusual usage spikes)
+
+**Shared Components**:
+- [ ] Create component: src/Components/Shared/UsageChart.razor (MudBlazor charts)
+- [ ] Create component: src/Components/Shared/TokenBreakdownCard.razor
+- [ ] Create component: src/Components/Shared/CostEstimateCard.razor
+- [ ] Create component: src/Components/Shared/UsageTable.razor (sortable/filterable)
+
+**API Endpoints**:
+- [ ] GET /api/usage/me - Current user's usage summary
+- [ ] GET /api/usage/me/daily?start={date}&end={date} - User's daily breakdown
+- [ ] GET /api/usage/org/{orgId} - Org usage summary (org admin only)
+- [ ] GET /api/usage/org/{orgId}/users - Per-user breakdown (org admin only)
+- [ ] GET /api/usage/global - All orgs summary (global admin only)
+- [ ] GET /api/usage/export?orgId={orgId}&format=csv - Export functionality
+
+**Authorization**:
+- [ ] Users can only see their own usage
+- [ ] Org admins can see aggregate org usage + per-user breakdown
+- [ ] Global admins can see all organizations
+- [ ] Add policies: "CanViewOrgUsage", "CanViewGlobalUsage"
+
+**Performance Considerations**:
+- [ ] Cache daily summaries (they don't change after day ends)
+- [ ] Use pagination for user lists (large orgs)
+- [ ] Pre-aggregate monthly rollups via background job
+- [ ] Consider Azure Monitor workbooks for heavy analytics
 
 ## PHASE 5: Chat UI Components
 
