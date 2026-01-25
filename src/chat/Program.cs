@@ -11,6 +11,8 @@ using src.Data;
 using src.Services;
 using Microsoft.AspNetCore.Authorization;
 using src.Authorization;
+using src.HealthChecks;
+using System.Threading.RateLimiting;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -75,6 +77,9 @@ builder.Services.AddSingleton<ICosmosDbService, CosmosDbService>();
 // Add AI Foundry Service (singleton pattern for agent connection pooling)
 builder.Services.AddSingleton<IAIFoundryService, AIFoundryService>();
 
+// Add AI Foundry Service Factory for multi-org AI configuration
+builder.Services.AddSingleton<IAIFoundryServiceFactory, AIFoundryServiceFactory>();
+
 // Add Conversation Context Manager
 builder.Services.AddSingleton<IConversationContextManager, ConversationContextManager>();
 
@@ -90,6 +95,9 @@ builder.Services.AddScoped<IOrganizationService, OrganizationService>();
 // Add Organization Admin Service (Scoped)
 builder.Services.AddScoped<IOrganizationAdminService, OrganizationAdminService>();
 
+// Add Layout State Service (Scoped for per-circuit state)
+builder.Services.AddScoped<ILayoutStateService, LayoutStateService>();
+
 builder.Services.AddAuthorization(options =>
 {
     options.AddPolicy("MustOwnConversation", policy =>
@@ -98,6 +106,63 @@ builder.Services.AddAuthorization(options =>
     options.AddPolicy("GlobalAdmin", policy => 
         policy.RequireRole("GlobalAdmin"));
 });
+
+// Add Health Checks
+builder.Services.AddHealthChecks()
+    .AddCheck<CosmosDbHealthCheck>("cosmosdb", tags: new[] { "ready", "startup" })
+    .AddCheck<AIFoundryHealthCheck>("aifoundry", tags: new[] { "ready" })
+    .AddCheck("liveness", () => Microsoft.Extensions.Diagnostics.HealthChecks.HealthCheckResult.Healthy("Application is alive"), tags: new[] { "live" });
+
+// Add CORS Policy
+builder.Services.AddCors(options =>
+{
+    options.AddPolicy("AllowConfiguredOrigins", policy =>
+    {
+        var allowedOrigins = builder.Configuration.GetSection("Cors:AllowedOrigins").Get<string[]>() 
+            ?? new[] { "https://localhost:5001" };
+        
+        policy.WithOrigins(allowedOrigins)
+              .AllowAnyMethod()
+              .AllowAnyHeader()
+              .AllowCredentials();
+    });
+});
+
+// Add Rate Limiting
+builder.Services.AddRateLimiter(options =>
+{
+    options.RejectionStatusCode = StatusCodes.Status429TooManyRequests;
+    
+    // Global rate limit - 100 requests per minute per user
+    options.AddPolicy("GlobalLimit", context =>
+        RateLimitPartition.GetFixedWindowLimiter(
+            partitionKey: context.User?.Identity?.Name ?? context.Connection.RemoteIpAddress?.ToString() ?? "anonymous",
+            factory: _ => new FixedWindowRateLimiterOptions
+            {
+                PermitLimit = 100,
+                Window = TimeSpan.FromMinutes(1),
+                QueueProcessingOrder = QueueProcessingOrder.OldestFirst,
+                QueueLimit = 5
+            }));
+
+    // AI Chat rate limit - 20 requests per minute (more restrictive due to cost)
+    options.AddPolicy("AILimit", context =>
+        RateLimitPartition.GetFixedWindowLimiter(
+            partitionKey: context.User?.Identity?.Name ?? context.Connection.RemoteIpAddress?.ToString() ?? "anonymous",
+            factory: _ => new FixedWindowRateLimiterOptions
+            {
+                PermitLimit = 20,
+                Window = TimeSpan.FromMinutes(1),
+                QueueProcessingOrder = QueueProcessingOrder.OldestFirst,
+                QueueLimit = 2
+            }));
+});
+
+// Add Message Sanitization Service
+builder.Services.AddSingleton<IMessageSanitizationService, MessageSanitizationService>();
+
+// Add Theme Service
+builder.Services.AddScoped<IThemeService, ThemeService>();
 
 var app = builder.Build();
 
@@ -127,6 +192,12 @@ else
 app.UseStatusCodePagesWithReExecute("/not-found", createScopeForStatusCodePages: true);
 app.UseHttpsRedirection();
 
+// Enable CORS
+app.UseCors("AllowConfiguredOrigins");
+
+// Enable Rate Limiting
+app.UseRateLimiter();
+
 app.UseAntiforgery();
 
 app.MapStaticAssets();
@@ -134,6 +205,25 @@ app.MapRazorComponents<App>()
     .AddInteractiveServerRenderMode();
 
 app.MapControllers();
+
+// Map Health Check Endpoints
+// /liveness - Basic app alive check (no dependencies)
+app.MapHealthChecks("/liveness", new Microsoft.AspNetCore.Diagnostics.HealthChecks.HealthCheckOptions
+{
+    Predicate = check => check.Tags.Contains("live")
+});
+
+// /startup - Dependencies initialized check (Cosmos DB must be ready)
+app.MapHealthChecks("/startup", new Microsoft.AspNetCore.Diagnostics.HealthChecks.HealthCheckOptions
+{
+    Predicate = check => check.Tags.Contains("startup")
+});
+
+// /readiness - Ready to accept traffic (all services operational)
+app.MapHealthChecks("/readiness", new Microsoft.AspNetCore.Diagnostics.HealthChecks.HealthCheckOptions
+{
+    Predicate = check => check.Tags.Contains("ready")
+});
 
 // Add additional endpoints required by the Identity /Account Razor components.
 app.MapAdditionalIdentityEndpoints();

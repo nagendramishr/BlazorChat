@@ -1,0 +1,456 @@
+## DEVELOPER GUIDANCE
+
+### Architecture Overview
+
+#### 0. Understanding the System Architecture
+**Core Pattern**: Thin client architecture for Azure AI Foundry agents
+**Components**:
+- **Blazor App** - UI, routing, authentication, HTTP client
+- **Azure AI Agent** - Deployed in Azure AI Foundry, runs AI inference remotely
+- **Cosmos DB** - Persistent storage for conversations, messages, metadata
+- **Agent Threads** - Ephemeral session memory maintained by Azure AI service
+
+**Execution Model**:
+```
+User Input → Blazor → HTTP Request → Azure AI Agent (remote) → Streams Response → Blazor UI
+                ↓                                                        ↓
+          Cosmos DB (save user msg)                           Cosmos DB (save AI response)
+```
+
+**Key Insight**: The app does NOT run AI locally. It's a client that:
+- Sends messages to deployed Azure AI agents
+- Streams responses back to users
+- Manages persistent storage in Cosmos DB
+- Handles authentication and authorization locally
+
+### Critical Lessons Learned
+
+#### 1. Resource Ownership Tracking
+**Problem**: AIFoundryService.DisposeAsync() was deleting user's existing agents from Azure portal
+**Root Cause**: No tracking of whether agent was created by service vs. retrieved from existing resources
+**Solution**: Always track resource ownership with boolean flags (_agentWasCreatedByService)
+**Rule**: When working with external Azure/cloud resources, NEVER assume you own them. Only clean up resources you created.
+
+#### 2. Dependency Injection Requirements
+**Problem**: TelemetryClient DI failed when Application Insights was conditionally registered
+**Root Cause**: Services depending on TelemetryClient were always registered, but TelemetryClient was conditional
+**Solution**: Always register base services (even if not configured), or make dependencies optional (nullable)
+**Rule**: Never conditionally register services that other services depend on. DI resolution must be deterministic.
+
+#### 3. Trust User's Environment Context
+**Problem**: Assumed agent didn't exist when GetAgents() returned empty, despite user confirming it exists in portal
+**Lesson**: Always verify why code can't find resources rather than assuming they don't exist
+**Note**: GetAgents() API may not show all agents due to permissions, pagination, or filtering
+
+#### 4. API Response Wrapper Types
+**Discovery**: Azure SDK uses ClientResult<T> wrapper - must access .Value property
+```csharp
+var result = await GetAgentVersionAsync(...);
+var agent = result.Value;  // Not result.Name!
+```
+**Rule**: Always check SDK documentation for return types, especially with preview SDKs
+
+#### 5. Soft Deletes Are Default Pattern
+**Implementation**: Mark records as IsDeleted = true rather than removing
+**Benefits**: Data recovery, audit trails, compliance (GDPR allows retention for legal purposes)
+**Application**: All user-facing delete operations (conversations, messages, preferences)
+
+#### 5A. Two-Tier Memory Architecture
+**Agent Threads (Azure AI Foundry)**:
+- Purpose: Provide conversation context for AI inference
+- Lifetime: Session-based, can expire after inactivity (typically 24 hours)
+- Scope: Only accessible via agent API during active sessions
+- Limitations: Cannot query for UI, not portable across agents, costs Azure storage fees
+
+**Cosmos DB (Persistent Storage)**:
+- Purpose: Permanent record for UI, analytics, compliance, recovery
+- Lifetime: Permanent until explicitly deleted
+- Scope: Powers conversation list, search, export, multi-user isolation
+- Benefits: Survives agent restarts, portable across agent versions, rich query support
+
+**Why Both?**
+- Agent thread: AI needs recent context for intelligent responses
+- Cosmos DB: Users need conversation history, you need audit trails
+- Without Cosmos: Browser refresh loses all history, no conversation list, no search
+- Without Threads: Agent has no context, every message is standalone
+
+**Pattern**: Always save messages to Cosmos DB even though agent maintains threads
+
+### Architecture Best Practices
+
+#### 6. DefaultAzureCredential Everywhere
+**Services**: Cosmos DB, Key Vault, AI Foundry, Application Insights
+**Benefits**: No hardcoded credentials, works across local dev (Azure CLI), CI/CD (managed identity), production
+**Rule**: Never use connection strings with keys in code
+
+#### 7. Optional Dependencies Pattern
+```csharp
+public Service(IRequired required, IOptional? optional = null)
+```
+**Usage**: Core dependencies required, observability/telemetry optional
+**Benefits**: Services work without full infrastructure, good for development
+
+#### 8. Configuration Placeholders
+```json
+"KeyVault": { "VaultUri": "<your-key-vault-url>" }
+```
+**Pattern**: Make required configuration obvious, prevent accidental secret commits
+**Check**: if (value.Contains("<your-")) throw exception
+
+#### 9. Service Registration Lifetimes
+- **Singleton**: CosmosDbService, AIFoundryService (stateful, connection pooling)
+- **Scoped**: Per-request services (Entity Framework contexts)
+- **Transient**: Stateless utilities
+**Rule**: Match lifetime to state requirements
+
+#### 9A. Microsoft Agent Framework (Current Implementation)
+**What It Is**: Microsoft's official SDK for building AI agent applications
+**Packages**: 
+- `Microsoft.Agents.AI.AzureAI` (preview)
+- `Azure.AI.Projects` (beta)
+
+**Features You're Already Using**:
+- `AIAgent` class for agent communication
+- `AgentThread` for conversation state management
+- Streaming responses with `IAsyncEnumerable<string>`
+- DefaultAzureCredential authentication
+- Agent retrieval (existing) or creation (new)
+
+#### 11A. Package Version Conflicts
+**Problem**: `NU1605: Detected package downgrade: Microsoft.Azure.Cosmos from 3.46.0 to 3.45.0`
+**Cause**: Health check package (AspNetCore.HealthChecks.CosmosDb) requires newer Cosmos SDK than project references
+**Solution**: Always upgrade to the higher version requirement
+**Pattern**: When adding packages, check their dependencies match or exceed your existing versions
+**Command**: `dotnet list package --include-transitive` to see dependency tree
+
+**Alternatives Considered**:
+- Direct OpenAI SDK: Simpler but stateless, no agent features (tools, code interpreter)
+- Semantic Kernel: Better for complex workflows, more setup overhead
+- AutoGen.Net: Multi-agent orchestration, overkill for single-agent chat
+
+**Recommendation**: Keep current framework - production-ready, follows Microsoft best practices
+
+### Preview Package Management
+
+#### 10. Preview Packages Are Necessary But Risky
+**Current**: Azure.AI.Projects (beta), Microsoft.Agents.AI.AzureAI (preview)
+**Why**: Latest AI agent framework, no stable alternative
+**Mitigation**: Pin exact versions, monitor release notes, plan migration for GA
+**Accept**: Breaking changes possible, limited documentation expected
+
+#### 11. Version Resolution Warnings
+**Example**: "MudBlazor 7.22.0 not found, resolved to 8.0.0"
+**Handling**: Usually safe - NuGet resolves to compatible higher version
+**Action**: Update csproj to match resolved version to eliminate noise
+
+### Telemetry & Debugging
+
+#### 12. Telemetry from Day One
+**Implementation**: Custom TelemetryService with message tracking, AI response time, token estimates, exceptions
+**Why**: Impossible to debug production issues without telemetry; retrofit harder than building in from start
+**Pattern**: Track operations, not sensitive data (user IDs yes, message content no)
+
+#### 13. Token Counting Heuristic
+**Formula**: CHARS_PER_TOKEN = 4 (rough approximation for GPT models)
+**Why**: Exact counting requires model-specific tokenizers (expensive)
+**Usage**: Estimate conservatively for context management
+**Good Enough**: For MVP, simple heuristics work; optimize later if needed
+
+#### 14. Diagnostic Logging for Cosmos DB
+**Pattern**: Log diagnostic strings for slow queries (> threshold) and errors
+**Purpose**: Performance tuning, identifying hot partitions
+**Note**: Cosmos DB diagnostics provide detailed request info without exposing data
+
+### UI/UX Patterns
+
+#### 15. Separate Markdown Component
+**Implementation**: MarkdownRenderer.razor with Markdig library
+**Why**: Reusability, encapsulation, easier to add syntax highlighting later
+**Pattern**: Conditional rendering based on message role (AI gets markdown, user gets plain text)
+
+#### 16. Progressive Feature Addition
+**Success Pattern**: Each feature added as complete unit (interface, implementation, UI, error handling)
+**Anti-pattern**: Partial implementations that leave features half-working
+**Completed**: Markdown, Context Management, Key Vault, App Insights, Conversation Deletion
+
+### Security Considerations
+
+#### 17. Multi-Layer Storage Strategy
+**Current**: SQLite for ASP.NET Identity (authentication), Cosmos DB for application data
+**Future**: Task 10.1 plans Azure AD migration to eliminate SQLite entirely
+**Lesson**: Pragmatic approach - use built-in auth for demo, plan enterprise auth for production
+
+#### 18. Sensitive Data in Logs
+**GoDeployment Architecture
+
+#### 19A. Azure App Service with .NET 10.0
+**Critical Configuration**:
+```bicep
+linuxFxVersion: 'DOTNETCORE|10.0'
+```
+**Requirements**:
+- Must use Linux-based App Service Plan (Windows doesn't support .NET 10.0 preview)
+- Must configure runtime explicitly (SDK version on local machine doesn't matter)
+- Publish with `--self-contained false` to use Azure's .NET 10.0 runtime
+
+**Deployment Files Created**:
+- `deploy/main.bicep` - Infrastructure as code with .NET 10.0 configuration
+- `deploy/deploy.ps1` - PowerShell deployment script
+- `azure.yaml` - Azure Developer CLI configuration
+- `deploy/parameters.json` - Resource configuration template
+
+**Managed Identity Setup**:
+After deployment, grant App Service's Managed Identity access to:
+1. Cosmos DB (Built-in Data Contributor role)
+2. Key Vault (Get/List secrets permissions)
+3. AI Foundry (project permissions)
+
+**Health Check Configuration**: Set `healthCheckPath: '/health'` in App Service for monitoring
+
+**Common Error**: "Current .NET SDK does not support .NET 10.0"
+- This happens on build machines with older SDK
+- Solution: Deploy to Azure where .NET 10.0 runtime is configured
+- Local dev: Ensure .NET 10.0 SDK is installed and in PATH
+
+### od**: User IDs, conversation IDs, operation names, error types
+**Never**: Message content, credentials, API keys, connection strings
+```csharp
+_logger.LogInformation("Deleted conversation {ConversationId} for user {UserId}", id, userId);
+// NEVER: _logger.LogInformation("Message: {Content}", message.Content);
+```
+
+### Production Readiness Checklist
+
+#### 19. Missing Production Features (Priority Order)
+1. **Rate Limiting** - Critical to prevent abuse and control costs
+2. **Health Checks** - Required for production deployment (/health, /health/ready)
+3. **Input Validation** - Security essential (length limits, sanitization)
+4. **Export Functionality** - User value feature (JSON/Markdown export)
+5. **Infrastructure as Code** - Bicep templates for reproducible environments
+
+#### 20. Cosmos DB Best Practices Applied
+- Hierarchical Partition Keys (HPK) for scalability
+- Query with partition key to avoid cross-partition queries
+- Soft deletes for data retention
+- Diagnostic logging for performance monitoring
+- DefaultAzureCredential for passwordless authentication
+
+### Development Workflow
+
+#### 21. Systematic Error Investigation
+1. Read exact error message and stack trace
+2. Search codebase for error source (grep_search)
+3. Read surrounding context (read_file)
+4. Identify root cause
+5. Implement targeted fix
+6. Verify compilation
+**Key Tool**: grep_search for finding errors, method calls, API usage
+
+#### 22. Project Structure That Works
+```
+Services/
+├── Interfaces (I*.cs)      # Contracts
+└── Implementations (*.cs)   # Concrete classes
+
+Co# Next Implementation Priorities (From tasks.txt Review)
+
+#### 27. Remaining Phase 2 & 3 Tasks (High Priority)
+**Task 3.3: Health Checks** - Critical for production monitoring
+- Add `Microsoft.Extensions.Diagnostics.HealthChecks` package ✓
+- Add `AspNetCore.HealthChecks.CosmosDb` package ✓ (requires Cosmos 3.46.0+)
+- Create CosmosDbHealthCheck.cs
+- Create AIFoundryHealthCheck.cs
+- Configure /health and /health/ready endpoints
+- Note: Package dependency version conflicts resolved
+
+**Task 2.1: Authorization Policies** - Security essential
+- Create UserCanAccessOwnConversations policy
+- Implement authorization handler to verify conversation ownership
+- Apply [Authorize] attributes to ensure data isolation per user
+
+**Task 2.2: CORS Configuration** - Required for production
+- Configure CORS in Program.cs
+- Define allowed origins in appsettings.json
+
+**Task 2.3: Rate Limiting** - Prevent abuse and control costs
+- Add rate limiting middleware
+- Configure per-user and per-endpoint limits
+- Note: Microsoft.AspNetCore.RateLimiting is built-in to .NET 9+
+
+**Task 2.5: Input Validation** - Security critical
+- Add validation attributes to input models
+- Create MessageSanitizationService for XSS prevention
+- Implement length limits, content filtering
+
+**Task 5.3: Syntax Highlighting** - UX enhancement (lower priority)
+- Consider highlight.js or Prism.js integration with Markdig
+
+## NOTES
+- Many tasks can be parallelized within phases
+- Current authentication uses ASP.NET Core Identity with SQLite (sufficient for demo)
+- Service authentication uses DefaultAzureCredential (already working for Cosmos DB)
+- Azure AD migration (Task 10.1) is optional for enterprise deployments and requires data migration planning
+- SignalR features (Phase 6) can be added incrementally
+- Testing should be done continuously, not just in Phase 8
+- Infrastructure as Code has been created (deploy/main.bicep) for .NET 10.0 deployment
+- The app is already using Microsoft Agent Framework - no alternative framework changes needed
+- Agent execution is 100% remote (Azure) - local app is thin client for UI/persistence only
+### Technical Hurdles & Resolutions
+
+#### 23. MudBlazor in .NET 8/10 Web Apps
+**Problem**: `System.InvalidOperationException: Missing <MudPopoverProvider />` in interactive pages
+**Root Cause**: Providers in static `MainLayout` are not visible to interactive components within the circuit
+**Solution**: Enable global interactivity in `App.razor` (`<Routes @rendermode="new InteractiveServerRenderMode(prerender: false)" />`) to bring layout into the interactive scope
+**Recommendation**: For highly interactive apps, prefer global interactivity over per-page/component modes
+**Key Insight**: Once global interactivity is enabled, individual pages should NOT specify their own `@rendermode` - this causes conflicts
+
+#### 23A. RenderFragment Serialization Boundary
+**Problem**: `Cannot pass the parameter 'Body' to component with rendermode 'InteractiveServerRenderMode'. This is because the parameter is of the delegate type 'RenderFragment'`
+**Root Cause**: Layouts cannot have `@rendermode InteractiveServer` because `Body` and `ChildContent` are RenderFragments which cannot be serialized across SSR/interactive boundaries
+**Anti-Pattern Attempted**: Wrapping static content inside interactive components
+**Solution**: Make entire Routes component interactive in App.razor rather than individual layouts
+**Rule**: Never try to pass RenderFragments to interactive components from static contexts
+
+#### 23B. Scoped Services Across Interactive Boundaries
+**Problem**: When using per-component `@rendermode InteractiveServer`, each interactive component gets its own circuit and scoped service instances
+**Symptom**: State changes in one interactive component not reflected in another (e.g., drawer toggle button and drawer component not synchronized)
+**Solution**: Use global interactivity OR use shared state services with event notifications
+**Pattern**: For apps with many interactive components, global interactivity is simpler than managing shared state across boundaries
+
+#### 24. Refactoring Razor Components
+**Problem**: Global rename operations (e.g., Tenant -> Organization) often miss references in `.razor` file `@code` blocks
+**Cause**: IDE refactoring references can be disjointed between C# classes and Razor markup
+**Action**: Manually verify file contents with `grep_search` after major naming refactors
+
+#### 25. Attribute Namespace Dependencies
+**Problem**: `CS0246` errors on attributes like `[Authorize]`
+**Cause**: Missing `using Microsoft.AspNetCore.Authorization;` directive
+**Rule**: Explicitly verify `using` statements when adding attributes; don't rely on implicit globals
+
+#### 26. Cosmos DB WSL/Gateway Latency
+**Observation**: Initial `CosmosClient` connection can take ~30s in `Gateway` mode (common in WSL)
+**Context**: Service initialization overhead for HTTP gateway
+**Advice**: Treat long startup times in Dev/WSL as normal; do not optimize prematurely unless persisting in Production (Direct mode)
+
+### MudBlazor Specific Lessons
+
+#### 28. MudBlazor 8.x Breaking Changes from 7.x
+**Problem**: Compilation errors after MudBlazor upgrade
+**Changes Observed**:
+- `ColorPickerStyle` → `PickerVariant` (enum renamed)
+- `MudList` and `MudListItem` require explicit generic type `T="Type"` for typed lists
+- Some attributes like `Title` on `MudIconButton` now trigger analyzer warnings (MUD0002) - use `aria-label` instead
+**Rule**: Check MudBlazor migration guide when upgrading major versions
+
+#### 29. MudDrawer Mini Variant Behavior
+**Feature**: `DrawerVariant.Mini` shows icons-only when collapsed
+**Issue**: `OpenMiniOnHover` triggers immediately on mouse movement, causing jarring UX
+**Solution**: Implement custom hover-to-expand with delay timer (1 second rest before expanding)
+**Pattern**: For hover behaviors, always consider implementing a delay to avoid triggering on mouse passthrough
+**Implementation**:
+```csharp
+private Timer? _hoverTimer;
+private void OnDrawerMouseEnter()
+{
+    _hoverTimer = new Timer(async _ => {
+        await InvokeAsync(() => { _drawerOpen = true; StateHasChanged(); });
+    }, null, 1000, Timeout.Infinite);
+}
+private void OnDrawerMouseLeave() { _hoverTimer?.Dispose(); }
+```
+
+#### 30. Conflicting UI Elements
+**Problem**: Chat page had its own `MudAppBar` with hamburger icon, causing confusion with MainLayout's AppBar
+**Symptom**: Hamburger menu appeared to toggle wrong element (conversations instead of navigation)
+**Solution**: 
+- Use `MudPaper` instead of `MudAppBar` for secondary headers within pages
+- Use different icons to distinguish functions (ChevronLeft/Chat for conversations, Menu for navigation)
+**Rule**: Only one `MudAppBar` per page - place it in the layout, not individual pages
+
+### Layout Architecture Lessons
+
+#### 31. Page-Specific vs Layout Container Wrapping
+**Problem**: MainLayout's `MudContainer` added unwanted padding/gaps for full-bleed pages like Chat
+**Solution**: Remove container from MainLayout, let pages control their own layout
+**Pattern**:
+- MainLayout: No wrapper, just `@Body`
+- Content pages (Home, Admin): Add `<MudContainer MaxWidth="MaxWidth.Large">` themselves
+- Full-bleed pages (Chat): Use 100% height/width directly
+**Benefit**: Flexibility - each page can optimize its layout
+
+#### 32. Height Calculation for Full-Page Components
+**Problem**: Chat page needs to fill available viewport height
+**Calculation**: `height: calc(100vh - appbar_height)`
+**Note**: AppBar height is typically 48px (Dense) or 64px (normal)
+**Pattern**: Set on MudMainContent: `Style="height: calc(100vh - 48px);"`
+
+#### 33. Collapsible Sidebars - Icon-Only Mode
+**Feature Toggle Pattern**: Use constants for feature flags
+```csharp
+private const bool _useMiniDrawer = true; // When false, drawer fully hides
+```
+**Implementation**: Pass drawer state to child components to conditionally show/hide text
+```razor
+<NavMenu DrawerOpen="_drawerOpen" UseMiniDrawer="_useMiniDrawer" />
+// In NavMenu:
+private bool ShowText => DrawerOpen || !UseMiniDrawer;
+<MudNavLink Icon="...">@(ShowText ? "Home" : "")</MudNavLink>
+```
+
+### Lifecycle and State Management
+
+#### 34. Avoid StateHasChanged() in Lifecycle Methods
+**Problem**: `ObjectDisposedException: Cannot access a disposed object` during rendering
+**Root Cause**: Calling `StateHasChanged()` inside `OnInitialized`, `OnParametersSet`, or `UpdateTheme()` methods
+**Rule**: Never call `StateHasChanged()` inside lifecycle methods - the framework calls it automatically after each lifecycle method completes
+**Exception**: Only call `StateHasChanged()` from event handlers, timers, or external callbacks
+
+#### 35. Duplicate Service Calls Across Components
+**Problem**: OrganizationResolver loads organization, then Chat page loads it again
+**Symptom**: Unnecessary API calls, potential race conditions
+**Solution**: Trust parent components to have loaded required data
+**Pattern**: Document which component is responsible for loading each piece of data
+**Example**: OrganizationResolver loads org → pages can access via `IOrganizationService.CurrentOrganization`
+
+### Health Check Implementation
+
+#### 36. ASP.NET Core Built-in Health Checks
+**Pattern**: Use built-in health checks, not third-party packages
+**Endpoints**:
+- `/liveness` - Basic app alive check (no dependencies)
+- `/startup` - Dependencies ready check
+- `/readiness` - Full health check for traffic acceptance
+**Tags**: Use tags to categorize checks (`live`, `ready`, `startup`)
+**Registration**:
+```csharp
+builder.Services.AddHealthChecks()
+    .AddCheck<CosmosDbHealthCheck>("cosmosdb", tags: new[] { "ready", "startup" })
+    .AddCheck("self", () => HealthCheckResult.Healthy(), tags: new[] { "live" });
+```
+
+#### 37. Package Dependency Conflicts with Health Checks
+**Issue**: `AspNetCore.HealthChecks.CosmosDb` may conflict with your Cosmos SDK version
+**Solution**: Write custom health check instead of using third-party package
+```csharp
+public class CosmosDbHealthCheck : IHealthCheck
+{
+    public async Task<HealthCheckResult> CheckHealthAsync(...)
+    {
+        await _cosmosDbService.GetUserPreferencesAsync(testUserId);
+        return HealthCheckResult.Healthy();
+    }
+}
+```
+
+## NOTES
+- Many tasks can be parallelized within phases
+- Current authentication uses ASP.NET Core Identity with SQLite (sufficient for demo)
+- Service authentication uses DefaultAzureCredential (already working for Cosmos DB)
+- Azure AD migration (Task 10.1) is optional for enterprise deployments and requires data migration planning
+- SignalR features (Phase 6) can be added incrementally
+- Testing should be done continuously, not just in Phase 8
+- Infrastructure as Code has been created (deploy/main.bicep) for .NET 10.0 deployment
+- The app is already using Microsoft Agent Framework - no alternative framework changes needed
+- Agent execution is 100% remote (Azure) - local app is thin client for UI/persistence only
+- Global interactivity is now enabled - individual pages should NOT specify @rendermode
+- MudBlazor 8.x is in use - check migration guide for API changes from 7.x

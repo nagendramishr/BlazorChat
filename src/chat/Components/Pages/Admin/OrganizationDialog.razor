@@ -12,8 +12,8 @@
                 </MudTabPanel>
                 
                 <MudTabPanel Text="Branding">
-                    <MudColorPicker Label="Primary Color" @bind-Text="model.PublicThemeSettings.PrimaryColor" ColorPickerStyle="ColorPickerStyle.Simple" />
-                    <MudColorPicker Label="Secondary Color" @bind-Text="model.PublicThemeSettings.SecondaryColor" ColorPickerStyle="ColorPickerStyle.Simple" />
+                    <MudColorPicker Label="Primary Color" @bind-Text="model.PublicThemeSettings.PrimaryColor" PickerVariant="PickerVariant.Inline" />
+                    <MudColorPicker Label="Secondary Color" @bind-Text="model.PublicThemeSettings.SecondaryColor" PickerVariant="PickerVariant.Inline" />
                     <MudTextField @bind-Value="model.PublicThemeSettings.LogoUrl" Label="Logo URL" />
                     <MudTextField @bind-Value="model.PublicThemeSettings.HeaderHtml" Label="Header HTML" Lines="3" />
                     <MudTextField @bind-Value="model.PublicThemeSettings.FooterHtml" Label="Footer HTML" Lines="3" />

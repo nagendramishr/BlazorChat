@@ -1,0 +1,38 @@
+@using src.Models
+@using src.Services
+@inject IOrganizationService OrganizationService
+@inject IThemeService ThemeService
+
+@* 
+    This component provides organization-specific styling.
+    It renders sanitized custom CSS from the current organization.
+*@
+
+@if (!string.IsNullOrEmpty(_customCss))
+{
+    <style>
+        @((MarkupString)_customCss)
+    </style>
+}
+
+@if (!string.IsNullOrEmpty(_organization?.PublicThemeSettings.HeaderHtml))
+{
+    <div class="org-header">
+        @((MarkupString)_organization.PublicThemeSettings.HeaderHtml)
+    </div>
+}
+
+@code {
+    private Organization? _organization;
+    private string _customCss = string.Empty;
+
+    protected override void OnInitialized()
+    {
+        _organization = OrganizationService.CurrentOrganization;
+        
+        if (_organization != null)
+        {
+            _customCss = ThemeService.GetCustomCss(_organization);
+        }
+    }
+}

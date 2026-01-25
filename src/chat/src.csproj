@@ -27,7 +27,6 @@
     <PackageReference Include="Microsoft.EntityFrameworkCore.Sqlite" Version="10.0.1" />
     <PackageReference Include="Microsoft.EntityFrameworkCore.Tools" Version="10.0.1" />
     <PackageReference Include="Microsoft.Azure.Cosmos" Version="3.46.0" />
-    <PackageReference Include="Microsoft.Extensions.Diagnostics.HealthChecks" Version="10.0.1" />
     <PackageReference Include="MudBlazor" Version="8.15.0" />
   </ItemGroup>
 

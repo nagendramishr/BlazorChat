@@ -63,16 +63,16 @@ NOTE: Current ASP.NET Core Identity with SQLite is sufficient for demo. Azure AD
 - [x] Register policies in Program.cs
 - [x] Apply [Authorize] attributes to endpoints/components
 
-### Task C2.2: Configure CORS
-- [ ] Add CORS policy in Program.cs
-- [ ] Configure allowed origins in appsettings.json
-- [ ] Apply CORS middleware
+### Task C2.2: Configure CORS ✓
+- [x] Add CORS policy in Program.cs (AllowConfiguredOrigins policy)
+- [x] Configure allowed origins in appsettings.json (Cors:AllowedOrigins array)
+- [x] Apply CORS middleware (UseCors)
 
-### Task C2.3: Implement Rate Limiting
-- [ ] Add NuGet package: Microsoft.AspNetCore.RateLimiting
-- [ ] Configure rate limiting policies in Program.cs
-- [ ] Apply rate limiting to chat endpoints
-- [ ] Configure limits in appsettings.json
+### Task C2.3: Implement Rate Limiting ✓
+- [x] Add NuGet package: Microsoft.AspNetCore.RateLimiting (built-in to ASP.NET Core)
+- [x] Configure rate limiting policies in Program.cs (GlobalLimit: 100/min, AILimit: 20/min)
+- [x] Apply rate limiting middleware (UseRateLimiter)
+- [x] Configure limits in appsettings.json (RateLimiting section)
 
 ### Task C2.4: Add Azure Key Vault Integration ✓
 - [x] Add NuGet package: Azure.Extensions.AspNetCore.Configuration.Secrets
@@ -81,12 +81,14 @@ NOTE: Current ASP.NET Core Identity with SQLite is sufficient for demo. Azure AD
 - [x] Configure Key Vault URL in appsettings.json
 - [x] Move sensitive settings (AI Foundry keys) to Key Vault (optional configuration)
 
-### Task C2.5: Input Validation & Sanitization
-- [ ] Add NuGet package: System.ComponentModel.Annotations
-- [ ] Create validation models for chat input
-- [ ] Implement message sanitization service: src/Services/MessageSanitizationService.cs
-- [ ] Add validation attributes to input models
-- [ ] Register validation services in Program.cs
+### Task C2.5: Input Validation & Sanitization ✓
+- [x] Add NuGet package: System.ComponentModel.Annotations (built-in)
+- [x] Create validation models: src/Models/ValidationModels.cs
+  - ChatMessageInput, ConversationInput, OrganizationInput
+- [x] Implement message sanitization service: src/Services/MessageSanitizationService.cs
+  - SanitizeMessage, SanitizeSlug, SanitizeCss, ContainsPromptInjection
+- [x] Add validation attributes to input models
+- [x] Register sanitization service in Program.cs (singleton)
 
 ## PHASE 2.5: Multi-Organization Architecture (New)
 Goal: Support multiple organizations with isolated configuration and branding sharing the same db instance.
@@ -141,11 +143,14 @@ Goal: Support multiple organizations with isolated configuration and branding sh
 - [x] Track exceptions with custom properties
 - [x] Register service in Program.cs
 
-### Task C3.3: Add Health Checks
-- [ ] Add NuGet package: Microsoft.Extensions.Diagnostics.HealthChecks
-- [ ] Create health check: src/HealthChecks/CosmosDbHealthCheck.cs
-- [ ] Create health check: src/HealthChecks/AIFoundryHealthCheck.cs
-- [ ] Add health check endpoints in Program.cs (/health, /health/ready)
+### Task C3.3: Add Health Checks ✓
+- [x] Add NuGet package: Microsoft.Extensions.Diagnostics.HealthChecks (built-in to ASP.NET Core)
+- [x] Create health check: src/HealthChecks/CosmosDbHealthCheck.cs
+- [x] Create health check: src/HealthChecks/AIFoundryHealthCheck.cs
+- [x] Add health check endpoints in Program.cs:
+  - /liveness (basic app alive check)
+  - /startup (dependencies initialized check)
+  - /readiness (ready to accept traffic check)
 - [ ] Configure health check UI (optional)
 
 ### Task C3.4: Cosmos DB Diagnostic Logging ✓
@@ -177,10 +182,13 @@ Goal: Support multiple organizations with isolated configuration and branding sh
 - [x] Register service in Program.cs
 - [x] Integrate with Chat.razor for streaming responses
 
-### Task C4.5: Multi-Organization AI Configuration (New)
-- [ ] Refactor AIFoundryService to remove singleton config dependency
-- [ ] Implement dynamic agent configuration resolution based on current Organization
-- [ ] Update AIFoundryService to accept OrganizationConfig settings per request
+### Task C4.5: Multi-Organization AI Configuration (New) ✓
+- [x] Create AIFoundryServiceFactory: src/Services/AIFoundryServiceFactory.cs
+  - Factory pattern for creating org-specific AI service instances
+  - OrganizationAIConfiguration wrapper for dynamic config
+- [x] Implement dynamic agent configuration resolution based on current Organization
+- [x] AIFoundryService accepts IConfiguration (works with org-specific config)
+- [x] Register AIFoundryServiceFactory in Program.cs
 - [ ] Test with multiple agent endpoints
 
 ### Task C4.3: Create Conversation Context Manager ✓
@@ -224,13 +232,17 @@ Goal: Support multiple organizations with isolated configuration and branding sh
 - [x] Add GitHub-style formatting for code blocks, tables, lists, header
 - [ ] Add syntax highlighting for code blocks
 
-### Task C5.4: Organization-Based Theming (Revised)
-- [ ] Update Organization model to include Custom CSS and HTML snippets support
-- [ ] Create service: src/Services/ThemeService.cs
-- [ ] Create component: src/Components/Shared/OrganizationStyleProvider.razor (renders raw <style> from Org.CustomCss)
-- [ ] Update MainLayout.razor to render Organization.HeaderHtml and FooterHtml (using MarkupString)
-- [ ] Create CSS variable injection based on organization settings
-- [ ] Fallback to default theme if no organization settings found
+### Task C5.4: Organization-Based Theming (Revised) ✓
+- [x] Organization model already includes Custom CSS and HTML snippets (PublicThemeSettings)
+- [x] Create service: src/Services/ThemeService.cs
+  - GetThemeForOrganization, GetCustomCss, GetDefaultTheme
+  - Dynamic MudTheme generation from org colors
+- [x] Create component: src/Components/Shared/OrganizationStyleProvider.razor
+  - Renders sanitized custom CSS
+  - Renders organization header HTML
+- [ ] Update MainLayout.razor to use OrganizationStyleProvider
+- [x] CSS sanitization via MessageSanitizationService
+- [x] Fallback to default theme if no organization settings found
 ### Task C5.5: Implement Theme Customization
 - [ ] Create theme configuration in appsettings.json
 - [ ] Create CSS variables for theming in app.css
@@ -426,11 +438,4 @@ NOTE: This phase is for enterprise deployments. Demo uses ASP.NET Core Identity 
 23. Task 10.1: Azure AD Authentication Migration (Enterprise SSO)
 24. Task 11.1-11.3: Compliance Features (Data Retention, GDPR, Audit Logging)
 
-## NOTES
-- Many tasks can be parallelized within phases
-- Current authentication uses ASP.NET Core Identity with SQLite (sufficient for demo)
-- Service authentication uses DefaultAzureCredential (already working for Cosmos DB)
-- Azure AD migration (Task 10.1) is optional for enterprise deployments and requires data migration planning
-- SignalR features (Phase 6) can be added incrementally
-- Testing should be done continuously, not just in Phase 8
-- Infrastructure as Code should be created alongside development
+

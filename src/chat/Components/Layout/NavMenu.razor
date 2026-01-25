@@ -4,31 +4,31 @@
 @using MudBlazor
 
 <MudNavMenu>
-    <MudNavLink Href="" Match="NavLinkMatch.All" Icon="@Icons.Material.Filled.Home">Home</MudNavLink>
+    <MudNavLink Href="" Match="NavLinkMatch.All" Icon="@Icons.Material.Filled.Home">@(ShowText ? "Home" : "")</MudNavLink>
     
     @if (OrganizationService.CurrentOrganization != null)
     {
-         <MudNavLink Href="@($"/org/{OrganizationService.CurrentOrganization.Slug}/chat")" Icon="@Icons.Material.Filled.Chat">Chat (@OrganizationService.CurrentOrganization.Name)</MudNavLink>
+         <MudNavLink Href="@($"/org/{OrganizationService.CurrentOrganization.Slug}/chat")" Icon="@Icons.Material.Filled.Chat">@(ShowText ? $"Chat ({OrganizationService.CurrentOrganization.Name})" : "")</MudNavLink>
     }
     else 
     {
-        <MudNavLink Href="chat" Icon="@Icons.Material.Filled.Chat">Chat</MudNavLink>
+        <MudNavLink Href="chat" Icon="@Icons.Material.Filled.Chat">@(ShowText ? "Chat" : "")</MudNavLink>
     }
 
-    <MudNavLink Href="auth" Icon="@Icons.Material.Filled.Lock">Auth Required</MudNavLink>
+    <MudNavLink Href="auth" Icon="@Icons.Material.Filled.Lock">@(ShowText ? "Auth Required" : "")</MudNavLink>
     
     <MudDivider Class="my-2" />
 
     <AuthorizeView Policy="GlobalAdmin">
          <Authorized>
-             <MudNavLink Href="admin/organizations" Icon="@Icons.Material.Filled.AdminPanelSettings">Admin Console</MudNavLink>
+             <MudNavLink Href="admin/organizations" Icon="@Icons.Material.Filled.AdminPanelSettings">@(ShowText ? "Admin Console" : "")</MudNavLink>
              <MudDivider Class="my-2" />
          </Authorized>
     </AuthorizeView>
 
     <AuthorizeView>
         <Authorized>
-            <MudNavLink Href="Account/Manage" Icon="@Icons.Material.Filled.Person">@context.User.Identity?.Name</MudNavLink>
+            <MudNavLink Href="Account/Manage" Icon="@Icons.Material.Filled.Person">@(ShowText ? context.User.Identity?.Name : "")</MudNavLink>
              @* 
                Since Logout requires a form post for Antiforgery in the default Identity template, 
                we keep a hidden form or use a controller. 
@@ -41,17 +41,31 @@
                     <input type="hidden" name="ReturnUrl" value="" />
                     <button type="submit" class="mud-nav-link mud-ripple">
                         <MudIcon Icon="@Icons.Material.Filled.Logout" Class="mud-nav-link-icon" />
-                        <span class="mud-nav-link-text">Logout</span>
+                        @if (ShowText)
+                        {
+                            <span class="mud-nav-link-text">Logout</span>
+                        }
                     </button>
                 </form>
              </div>
         </Authorized>
         <NotAuthorized>
-            <MudNavLink Href="Account/Register" Icon="@Icons.Material.Filled.PersonAdd">Register</MudNavLink>
-            <MudNavLink Href="Account/Login" Icon="@Icons.Material.Filled.Login">Login</MudNavLink>
+            <MudNavLink Href="Account/Register" Icon="@Icons.Material.Filled.PersonAdd">@(ShowText ? "Register" : "")</MudNavLink>
+            <MudNavLink Href="Account/Login" Icon="@Icons.Material.Filled.Login">@(ShowText ? "Login" : "")</MudNavLink>
         </NotAuthorized>
     </AuthorizeView>
 </MudNavMenu>
+
+@code {
+    [Parameter]
+    public bool DrawerOpen { get; set; } = true;
+    
+    [Parameter]
+    public bool UseMiniDrawer { get; set; } = true;
+    
+    // Show text when drawer is open, or when not using mini drawer mode (full hide/show)
+    private bool ShowText => DrawerOpen || !UseMiniDrawer;
+}
 
 <style>
     /* Quick fix to make the button look like a MudNavLink */

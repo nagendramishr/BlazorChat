@@ -3,13 +3,10 @@
 @using src.Models
 @using Microsoft.AspNetCore.Authorization
 @attribute [Authorize(Policy = "GlobalAdmin")]
-@rendermode @(new InteractiveServerRenderMode(prerender: false))
 @inject IOrganizationAdminService OrganizationAdminService
 @inject IDialogService DialogService
 @inject ISnackbar Snackbar
 @using src.Components.Shared
-
-<RequiredMudProviders />
 
 <PageTitle>Organization Management</PageTitle>
 
@@ -17,7 +14,7 @@
     <MudText Typo="Typo.h4" GutterBottom="true">Organizations</MudText>
     <MudText Typo="Typo.subtitle1" Class="mb-4">Manage multi-organization chat configurations.</MudText>
 
-    <MudTable Items="@organizations" Dense="true" Hover="true" Bordered="true" Striped="true" Filter="new Func<Organization,bool>(FilterFunc1)" @bind-SelectedItem="selectedItem1">
+    <MudTable T="Organization" Items="@organizations" Dense="true" Hover="true" Bordered="true" Striped="true" Filter="@FilterFunc1" SelectedItem="selectedItem1" SelectedItemChanged="@((Organization? item) => selectedItem1 = item)">
         <ToolBarContent>
             <MudText Typo="Typo.h6">Organizations</MudText>
             <MudSpacer />
@@ -31,13 +28,13 @@
             <MudTh>Branding</MudTh>
             <MudTh>Actions</MudTh>
         </HeaderContent>
-        <RowTemplate>
-            <MudTd DataLabel="Name">@context.Name</MudTd>
+        <RowTemplate Context="org">
+            <MudTd DataLabel="Name">@org.Name</MudTd>
             <MudTd DataLabel="Slug">
-                <MudLink Href="@($"/org/{context.Slug}/chat")" Target="_blank">@context.Slug</MudLink>
+                <MudLink Href="@($"/org/{org.Slug}/chat")" Target="_blank">@org.Slug</MudLink>
             </MudTd>
             <MudTd DataLabel="Status">
-                @if (context.IsDisabled)
+                @if (org.IsDisabled)
                 {
                     <MudChip T="string" Color="Color.Error" Size="Size.Small">Disabled</MudChip>
                 }
@@ -47,20 +44,20 @@
                 }
             </MudTd>
             <MudTd DataLabel="Branding">
-                <div style="width: 20px; height: 20px; background-color: @context.PublicThemeSettings?.PrimaryColor; border-radius: 50%; display: inline-block;"></div>
+                <div style="width: 20px; height: 20px; background-color: @org.PublicThemeSettings?.PrimaryColor; border-radius: 50%; display: inline-block;"></div>
             </MudTd>
             <MudTd DataLabel="Actions">
-                <MudIconButton Icon="@Icons.Material.Filled.Edit" Color="Color.Primary" OnClick="@(() => OpenEditDialog(context))" Size="Size.Small" />
-                @if (!context.IsDisabled)
+                <MudIconButton Icon="@Icons.Material.Filled.Edit" Color="Color.Primary" OnClick="@(() => OpenEditDialog(org))" Size="Size.Small" />
+                @if (!org.IsDisabled)
                 {
                      <MudTooltip Text="Disable">
-                        <MudIconButton Icon="@Icons.Material.Filled.Block" Color="Color.Warning" OnClick="@(() => ToggleStatus(context))" Size="Size.Small" />
+                        <MudIconButton Icon="@Icons.Material.Filled.Block" Color="Color.Warning" OnClick="@(() => ToggleStatus(org))" Size="Size.Small" />
                      </MudTooltip>
                 }
                 else 
                 {
                      <MudTooltip Text="Enable">
-                        <MudIconButton Icon="@Icons.Material.Filled.CheckCircle" Color="Color.Success" OnClick="@(() => ToggleStatus(context))" Size="Size.Small" />
+                        <MudIconButton Icon="@Icons.Material.Filled.CheckCircle" Color="Color.Success" OnClick="@(() => ToggleStatus(org))" Size="Size.Small" />
                      </MudTooltip>
                 }
             </MudTd>

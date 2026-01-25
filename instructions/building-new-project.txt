@@ -1,0 +1,232 @@
+# Rules of Thumb: Building New Projects
+
+## 1. Requirements Gathering
+
+### Start with Core Requirements
+- List the primary technology stack (framework, language, runtime)
+- Identify data storage needs (database type, persistence model)
+- Define authentication/authorization requirements
+- List external service integrations (AI, APIs, etc.)
+
+### Organize Requirements by Category
+Recommended sections:
+- Infrastructure & Core Platform
+- Data & Persistence
+- Security & Authentication
+- Core Functionality (domain-specific)
+- Real-time Features (if applicable)
+- User Experience
+- Monitoring & Observability
+- Performance & Scalability
+- Development & DevOps
+- Compliance & Data Management
+
+### Review for Gaps
+After initial requirements, add a "Suggested Additional Requirements" section covering:
+- Error handling strategies
+- Caching approaches
+- Rate limiting
+- Health checks
+- Audit logging
+- Data retention policies
+
+## 2. Task Planning
+
+### Break Down into Phases
+1. **Foundation (MVP)** - Core infrastructure, basic functionality
+2. **Core Features** - Primary user-facing functionality
+3. **Security & Production Readiness** - Before deployment
+4. **Enhanced UX** - Polish and improvements
+5. **Advanced Features** - Nice to have
+6. **Scalability** - Optimization
+7. **Enterprise/Compliance** - Governance requirements
+
+### Task Granularity
+- Each task should be completable in 1-4 hours
+- Include specific file paths and code artifacts to create
+- List dependencies between tasks
+- Mark tasks with priority: CRITICAL, HIGH, MEDIUM, LOW
+
+### Track Progress
+- Create separate files: requirements.txt, priorities.txt, tasks.txt
+- Update task status as work progresses: [ ], [x], ⚡(partial)
+- Note alternatives when original approach changes
+
+## 3. Implementation Order
+
+### Recommended Sequence
+1. Project scaffolding and configuration
+2. Data models and persistence layer
+3. Service layer (business logic)
+4. UI components (visual elements)
+5. Wire up UI to services (integration)
+6. External integrations (APIs, AI, etc.)
+7. Monitoring and observability
+8. Testing
+9. DevOps and deployment
+
+### The "Visual First" Alternative
+After basic infrastructure:
+1. Build UI with mock data
+2. Test user experience early
+3. Wire up real data layer
+4. Add external integrations
+
+This approach:
+- Provides immediate visual feedback
+- Allows UX validation before heavy backend work
+- Makes progress more visible to stakeholders
+
+## 4. Technology Decisions
+
+### Package Selection
+- Use latest stable versions, but verify compatibility
+- Check for breaking changes between major versions (e.g., MudBlazor 7 vs 8)
+- Prefer well-maintained, popular packages
+- Add packages incrementally, not all at once
+
+### Service Registration Patterns
+- Singleton for: database clients, HTTP clients, expensive resources
+- Scoped for: per-request services, user-specific context
+- Transient for: lightweight, stateless services
+
+### Configuration Management
+- Use appsettings.json for structure
+- Use appsettings.{Environment}.json for environment-specific
+- Use Key Vault for secrets in production
+- Validate configuration on startup
+
+## 5. Data Layer Guidelines
+
+### Cosmos DB Specific
+- Choose partition key based on most common query pattern
+- Use UserId for user-scoped data (conversations)
+- Use parent ID for child data (messages by conversation)
+- Implement soft delete over hard delete
+- Add diagnostic logging for slow queries (>100ms threshold)
+- Use singleton pattern for CosmosClient
+
+### General Persistence
+- Create models first, then services
+- Interface-first design for testability
+- Implement proper error handling with meaningful messages
+- Add pagination for list operations
+- Consider caching for frequently accessed metadata
+
+## 6. UI Development
+
+### Component Libraries
+- Choose one UI library and commit (MudBlazor, FluentUI, etc.)
+- Configure globally in App.razor (CSS, JS) and Program.cs (services)
+- Add @using directives to _Imports.razor
+- Check library version compatibility with framework version
+
+### Component Structure
+For chat/messaging apps:
+- Main page component (Chat.razor)
+- Message list component
+- Message item component (with role-based styling)
+- Input component
+- Sidebar/navigation component
+
+### State Management
+- Use component state for simple cases
+- Inject services for shared state
+- Use CascadingParameters for auth state
+- Handle loading states explicitly
+- Show error feedback to users (Snackbar, alerts)
+
+## 7. Error Handling Patterns
+
+### Service Layer
+```
+try {
+    // operation
+} catch (SpecificException ex) when (condition) {
+    // handle known case
+} catch (Exception ex) {
+    _logger.LogError(ex, "Context: {Details}", details);
+    throw;
+}
+```
+
+### UI Layer
+```
+try {
+    // service call
+} catch (Exception ex) {
+    Snackbar.Add($"User-friendly message: {ex.Message}", Severity.Error);
+    // restore previous state if needed
+}
+```
+
+## 8. Common Pitfalls
+
+### Avoid
+- Creating multiple service instances (use singleton for DB clients)
+- Forgetting to add @using directives for component libraries
+- Hard-coding configuration values
+- Ignoring async/await patterns
+- Skipping error handling during development
+- Making all tasks dependent on each other
+
+### Watch For
+- Package version mismatches
+- Breaking changes in major version upgrades
+- IntelliSense errors that resolve after build
+- Missing configuration validation
+- Circular dependencies
+
+## 9. Testing Strategy
+
+### Development Testing
+- Use mock data to validate UI early
+- Use emulators for local database testing (Cosmos DB Emulator)
+- Create seed scripts for test data
+- Test authentication flows manually first
+
+### Before Production
+- Add unit tests for services
+- Add integration tests for API endpoints
+- Test error scenarios explicitly
+- Validate configuration across environments
+
+## 10. Documentation
+
+### Maintain These Files
+- requirements.txt - What needs to be built
+- priorities.txt - Order of implementation
+- tasks.txt - Detailed implementation steps
+- developer-guidance.txt - How to work in this codebase
+
+### Update As You Go
+- Mark completed tasks immediately
+- Note when approach changes from original plan
+- Document environment setup requirements
+- Keep README current with setup instructions
+
+## Quick Reference Checklist
+
+### New Project Setup
+- [ ] Define requirements by category
+- [ ] Add suggested/missing requirements
+- [ ] Create prioritized phase list
+- [ ] Break into granular tasks with file paths
+- [ ] Set up project scaffolding
+- [ ] Configure authentication
+- [ ] Add data models
+- [ ] Create service interfaces and implementations
+- [ ] Build UI components
+- [ ] Wire up services to UI
+- [ ] Add error handling and user feedback
+- [ ] Add monitoring/logging
+- [ ] Create tests
+- [ ] Set up CI/CD
+- [ ] Document everything
+
+### Before Each Implementation Session
+1. Review current task status
+2. Identify next priority tasks
+3. Check for dependencies
+4. Verify environment is ready
+5. Update task status when complete

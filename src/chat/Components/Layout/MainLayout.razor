@@ -10,7 +10,7 @@
 
 <MudLayout>
     <MudAppBar Elevation="1" Dense="true" Style="@($"background: {_currentTheme.PaletteLight.Primary}; color: {_currentTheme.PaletteLight.TextPrimary};")">
-        <MudIconButton Icon="@Icons.Material.Filled.Menu" Color="Color.Inherit" Edge="Edge.Start" OnClick="@((e) => DrawerToggle())" />
+        <MudIconButton Icon="@Icons.Material.Filled.Menu" Color="Color.Inherit" Edge="Edge.Start" OnClick="@DrawerToggle" aria-label="Toggle navigation" />
         
         @if (HasCustomHeader)
         {
@@ -34,14 +34,17 @@
         </AuthorizeView>
     </MudAppBar>
 
-    <MudDrawer @bind-Open="_drawerOpen" ClipMode="DrawerClipMode.Always" Elevation="2">
-        <NavMenu />
-    </MudDrawer>
+    <div @onmouseenter="OnDrawerMouseEnter" @onmouseleave="OnDrawerMouseLeave">
+        <MudDrawer @bind-Open="_drawerOpen" 
+                   ClipMode="DrawerClipMode.Always" 
+                   Elevation="2"
+                   Variant="@(_useMiniDrawer ? DrawerVariant.Mini : DrawerVariant.Responsive)">
+            <NavMenu DrawerOpen="_drawerOpen" UseMiniDrawer="_useMiniDrawer" />
+        </MudDrawer>
+    </div>
 
-    <MudMainContent>
-        <MudContainer MaxWidth="MaxWidth.Large" Class="my-4 pt-4">
-            @Body
-        </MudContainer>
+    <MudMainContent Class="d-flex flex-column" Style="height: calc(100vh - 48px);">
+        @Body
         
         @if (!string.IsNullOrEmpty(OrganizationService.CurrentOrganization?.PublicThemeSettings?.FooterHtml))
         {
@@ -52,9 +55,17 @@
     </MudMainContent>
 </MudLayout>
 
+@implements IDisposable
+
 @code {
-    bool _drawerOpen = true;
+    private bool _drawerOpen = true;
+    private bool _drawerOpenedByHover = false;
     private MudTheme _currentTheme = new MudTheme();
+    private System.Threading.Timer? _hoverTimer;
+    private const int HoverDelayMs = 1000; // 1 second delay before expanding on hover
+    
+    // Feature toggle: When true, collapsed drawer shows icons only; when false, drawer fully hides
+    private const bool _useMiniDrawer = true;
 
     [CascadingParameter(Name = "CurrentOrganization")]
     public src.Models.Organization? CurrentOrganization { get; set; }
@@ -92,10 +103,10 @@
             // Default Theme
             _currentTheme = new MudTheme();
         }
-        StateHasChanged();
+        // Note: Don't call StateHasChanged() here - the framework handles it after lifecycle methods
     }
 
-    void DrawerToggle()
+    private void DrawerToggle()
     {
         _drawerOpen = !_drawerOpen;
     }
@@ -106,8 +117,42 @@
     private void Logout()
     {
         Navigation.NavigateTo("Account/Logout", true); 
-        // Note: Identity logout usually requires a POST form or a redirect controller. 
-        // For simplicity reusing the link, but standard Identity requires form.
-        // Users should use the sidebar or we implement a controller redirect.
+    }
+
+    private void OnDrawerMouseEnter()
+    {
+        // Only start timer if using mini drawer and drawer is currently collapsed
+        if (_useMiniDrawer && !_drawerOpen)
+        {
+            _hoverTimer?.Dispose();
+            _hoverTimer = new System.Threading.Timer(async _ =>
+            {
+                await InvokeAsync(() =>
+                {
+                    _drawerOpen = true;
+                    _drawerOpenedByHover = true;
+                    StateHasChanged();
+                });
+            }, null, HoverDelayMs, System.Threading.Timeout.Infinite);
+        }
+    }
+
+    private void OnDrawerMouseLeave()
+    {
+        // Cancel any pending hover timer
+        _hoverTimer?.Dispose();
+        _hoverTimer = null;
+
+        // If drawer was opened by hover, close it when mouse leaves
+        if (_drawerOpenedByHover)
+        {
+            _drawerOpen = false;
+            _drawerOpenedByHover = false;
+        }
+    }
+
+    public void Dispose()
+    {
+        _hoverTimer?.Dispose();
     }
 }
