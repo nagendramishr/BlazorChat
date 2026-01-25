@@ -191,9 +191,19 @@ await _mediator.Publish(new MessageSentEvent(message, conversationId, userId));
 - [ ] Will be implemented fully in Task C4.4
 - [ ] Handler reacts to: MessageSentEvent, AIResponseReceivedEvent, ConversationResumedEvent
 
-### Task A3: Distributed Cache with Redis ⚠️
+### Task A3: Distributed Cache with Redis ✅ PARTIAL (Thread State Complete)
 Priority: HIGH (Solves thread persistence AND enables horizontal scaling)
 Goal: Externalize session state from in-memory dictionaries.
+
+**Implementation Status** (Completed Jan 2026):
+- ✅ Created IThreadStateService interface (src/Services/Cache/IThreadStateService.cs)
+- ✅ Created InMemoryThreadStateService (default for dev)
+- ✅ Created RedisThreadStateService (production scaling)
+- ✅ Created CosmosDbThreadStateService (simple deployments)
+- ✅ Added ThreadState:Provider config in appsettings.json
+- ✅ Integrated into ChatApplicationService
+- ⏳ Redis NuGet package optional (commented out until needed)
+- ⏳ Rate limiting, org cache, user session - not yet implemented
 
 **Current Problem**:
 ```csharp

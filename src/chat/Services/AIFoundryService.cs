@@ -55,21 +55,37 @@ public class AIFoundryService : IAIFoundryService, IAsyncDisposable
             _logger.LogInformation("Initializing Microsoft Foundry AI agent...");
 
             var endpoint = _configuration["AIFoundry:Endpoint"];
+            var proxyEndpoint = _configuration["AIFoundry:ProxyEndpoint"];
             var existingAgentId = _configuration["AIFoundry:ExistingAgentId"];
             var modelDeployment = _configuration["AIFoundry:ModelDeployment"];
             var agentName = _configuration["AIFoundry:AgentName"] ?? "BlazorChatAgent";
             var agentInstructions = _configuration["AIFoundry:AgentInstructions"] 
                 ?? "You are a helpful AI assistant.";
 
-            if (string.IsNullOrWhiteSpace(endpoint) || endpoint.Contains("<your-"))
+            // Determine which endpoint to use
+            var hasEndpoint = !string.IsNullOrWhiteSpace(endpoint) && !endpoint.Contains("<your-");
+            var hasProxyEndpoint = !string.IsNullOrWhiteSpace(proxyEndpoint) && !proxyEndpoint.Contains("<your-");
+
+            if (hasEndpoint && hasProxyEndpoint)
             {
                 throw new InvalidOperationException(
-                    "Microsoft Foundry endpoint not configured. Please update appsettings.json with your project endpoint.");
+                    "Both AIFoundry:Endpoint and AIFoundry:ProxyEndpoint are configured. " +
+                    "Please configure only one: use Endpoint for direct connection or ProxyEndpoint for SimpleL7Proxy routing.");
             }
+
+            if (!hasEndpoint && !hasProxyEndpoint)
+            {
+                throw new InvalidOperationException(
+                    "No AI Foundry endpoint configured. Please set either AIFoundry:Endpoint or AIFoundry:ProxyEndpoint in appsettings.json.");
+            }
+
+            var effectiveEndpoint = hasProxyEndpoint ? proxyEndpoint : endpoint;
+            _logger.LogInformation("Using AI endpoint: {Endpoint} (via {Source})", 
+                effectiveEndpoint, hasProxyEndpoint ? "proxy" : "direct");
 
             // Create AI Project Client with DefaultAzureCredential
             _aiProjectClient = new AIProjectClient(
-                new Uri(endpoint),
+                new Uri(effectiveEndpoint!),
                 new DefaultAzureCredential());
 
             // Check if we should use an existing agent or create a new one
