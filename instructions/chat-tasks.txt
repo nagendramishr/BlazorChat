@@ -108,56 +108,57 @@ Chat.razor → IChatApplicationService → Domain Services → Infrastructure
 - [ ] Consolidate org-related operations from Controller + Services
 - [ ] Prepare for Admin UI implementation
 
-### Task A2: Domain Events with MediatR
-Priority: MEDIUM (Optional with SimpleL7Proxy - proxy handles AI telemetry)
-Goal: Decouple cross-cutting concerns using event-driven architecture.
+### Task A2: Event Publishing to Event Hub ✅ COMPLETE (Replaces MediatR)
+Priority: MEDIUM
+Goal: Publish chat events to Azure Event Hub for consumption by Reporting Service.
 
-**With SimpleL7Proxy**: Token tracking telemetry is handled by the proxy.
-MediatR is still useful for APP-LEVEL events (conversation created, user actions, audit).
-Can be deferred if time-constrained - proxy covers the critical AI observability.
+**Decision**: Use Azure Event Hub instead of MediatR.
+- MediatR = in-process pub/sub (same app)
+- Event Hub = distributed pub/sub (across services)
 
-**Current Problem**:
-```csharp
-// Chat.razor has to remember ALL places to call
-await CosmosDbService.SaveMessageAsync(message);
-TelemetryService.TrackMessageSent(...);
-// TODO: Track usage - easy to forget!
-// TODO: Check quota - easy to forget!
-// TODO: Audit log - easy to forget!
+Since BlazorChat has a separate Reporting Service (see reporting-tasks.txt),
+Event Hub is the right choice for cross-service event distribution.
+
+**Implementation Summary** (Completed Jan 2026):
+- ✅ Created Services/EventHub/ folder (adapted from SimpleL7Proxy)
+- ✅ EventHubConfig.cs - Minimal config matching SimpleL7Proxy
+- ✅ EventHubClient.cs - Buffered async sender with background writer
+- ✅ IEventClient.cs - Interface matching SimpleL7Proxy pattern
+- ✅ NullEventClient.cs - No-op when Event Hub not configured
+- ✅ ChatEvents.cs - BlazorChat-specific event types
+- ✅ Auto-detection: Uses NullEventClient if no connection configured
+- ✅ Supports both connection string and managed identity auth
+
+**Configuration** (appsettings.json):
+```json
+"EventHub": {
+  "ConnectionString": "",        // Use this OR EventHubNamespace
+  "EventHubNamespace": "",       // Uses DefaultAzureCredential
+  "EventHubName": "chat-events",
+  "StartupSeconds": 10
+}
 ```
 
-**Target Architecture**:
+**Event Types Available**:
+- MessageSentEvent - User sends message to AI
+- MessageReceivedEvent - AI response received
+- ConversationCreatedEvent - New conversation started
+- ConversationDeletedEvent - Conversation deleted
+- ThreadResumedEvent - AI thread rehydration
+- QuotaExceededEvent - User hit quota limit
+- ChatErrorEvent - Error during chat processing
+
+**Usage in Services**:
 ```csharp
-// Publish event once, handlers react independently
-await _mediator.Publish(new MessageSentEvent(message, conversationId, userId));
-// Handlers: TelemetryHandler, UsageTrackingHandler, QuotaCheckHandler, AuditHandler
+_eventClient.SendData(new MessageSentEvent {
+    OrganizationId = orgId,
+    UserId = userId,
+    ConversationId = conversationId,
+    InputCharacters = message.Length
+});
 ```
 
-#### A2.1: Add MediatR Infrastructure
-- [ ] Add NuGet package: MediatR
-- [ ] Add NuGet package: MediatR.Extensions.Microsoft.DependencyInjection
-- [ ] Register MediatR in Program.cs: `builder.Services.AddMediatR(cfg => ...)`
-- [ ] Create folder structure: src/Events/, src/Events/Handlers/
-
-#### A2.2: Define Core Domain Events
-- [ ] Create event: src/Events/MessageSentEvent.cs
-  - Properties: Message, ConversationId, UserId, OrganizationId, Timestamp
-- [ ] Create event: src/Events/AIResponseReceivedEvent.cs
-  - Properties: ConversationId, ResponseText, TokensUsed, ResponseTimeMs, ModelName
-- [ ] Create event: src/Events/ConversationCreatedEvent.cs
-- [ ] Create event: src/Events/ConversationDeletedEvent.cs
-- [ ] Create event: src/Events/ConversationResumedEvent.cs (for rehydration tracking)
-
-#### A2.3: Migrate Telemetry to Event Handlers
-- [ ] Create handler: src/Events/Handlers/TelemetryEventHandler.cs
-- [ ] Move TelemetryService.TrackMessageSent() calls to handler
-- [ ] Move TelemetryService.TrackAIResponseTime() calls to handler
-- [ ] Remove direct TelemetryService calls from Chat.razor/ChatApplicationService
-
-#### A2.4: Prepare for Usage Tracking Integration
-- [ ] Create handler stub: src/Events/Handlers/UsageTrackingEventHandler.cs
-- [ ] Will be implemented fully in Task C4.4
-- [ ] Handler reacts to: MessageSentEvent, AIResponseReceivedEvent, ConversationResumedEvent
+**Next Step**: Wire up event publishing in ChatApplicationService.
 
 ### Task A3: Distributed Cache with Redis ✅ PARTIAL (Thread State Complete)
 Priority: HIGH (Solves thread persistence AND enables horizontal scaling)

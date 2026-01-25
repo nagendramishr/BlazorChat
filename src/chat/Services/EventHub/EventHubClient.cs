@@ -1,0 +1,215 @@
+using Azure.Messaging.EventHubs;
+using Azure.Messaging.EventHubs.Producer;
+using System.Collections.Concurrent;
+using System.Text;
+using System.Text.Json;
+using Microsoft.Extensions.Hosting;
+using Microsoft.Extensions.Logging;
+
+namespace src.Services.EventHub;
+
+/// <summary>
+/// Event Hub client adapted from SimpleL7Proxy.
+/// Implements buffered sending with background writer for efficiency.
+/// </summary>
+public class EventHubClient : IEventClient, IHostedService
+{
+    private readonly EventHubConfig? _config;
+    private EventHubProducerClient? _producerClient;
+    private EventDataBatch? _batchData;
+    private readonly ILogger<EventHubClient> _logger;
+    private readonly CancellationTokenSource cancellationTokenSource = new();
+    private CancellationToken workerCancelToken;
+    private bool isRunning = false;
+    private bool isShuttingDown = false;
+    private Task? writerTask;
+    private readonly ConcurrentQueue<string> _logBuffer = new();
+
+    public bool IsRunning { get => isRunning; set => isRunning = value; }
+    public int GetEntryCount() => entryCount;
+    private static int entryCount = 0;
+
+    public EventHubClient(EventHubConfig? config, ILogger<EventHubClient> logger)
+    {
+        _config = config;
+        _logger = logger ?? throw new ArgumentNullException(nameof(logger));
+    }
+
+    public int Count => _logBuffer.Count;
+
+    public async Task StartAsync(CancellationToken cancellationToken) {
+        // Handle null or invalid configuration gracefully - just don't start the service
+        if (_config == null)
+        {
+            _logger.LogInformation("EventHubClient configuration is null. EventHub will not be started.");
+            isRunning = false;
+            return;
+        }
+
+        // Validate configuration has minimum required information
+        bool hasConnectionString = !string.IsNullOrEmpty(_config.ConnectionString) && !string.IsNullOrEmpty(_config.EventHubName);
+        bool hasNamespace = !string.IsNullOrEmpty(_config.EventHubNamespace) && !string.IsNullOrEmpty(_config.EventHubName);
+        
+        if (!hasConnectionString && !hasNamespace)
+        {
+            _logger.LogInformation("EventHubClient configuration is incomplete. EventHub will not be started.");
+            isRunning = false;
+            return;
+        }
+
+        using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(_config.StartupSeconds));
+        try {
+            if (!string.IsNullOrEmpty(_config.ConnectionString))
+            {
+                _producerClient = new EventHubProducerClient(_config.ConnectionString, _config.EventHubName);
+            }
+            else if (!string.IsNullOrEmpty(_config.EventHubNamespace))
+            {
+                var fullyQualifiedNamespace = _config.EventHubNamespace;
+                if (!fullyQualifiedNamespace.EndsWith(".servicebus.windows.net"))
+                    fullyQualifiedNamespace = $"{_config.EventHubNamespace}.servicebus.windows.net";
+            
+                _producerClient = new EventHubProducerClient(fullyQualifiedNamespace, _config.EventHubName, new Azure.Identity.DefaultAzureCredential());
+            }
+            
+            _batchData = await _producerClient!.CreateBatchAsync(cts.Token).ConfigureAwait(false);
+            workerCancelToken = cancellationTokenSource.Token;
+            isRunning = true;
+            
+            _logger.LogCritical("[SERVICE] ✓ EventHub Client started successfully");
+            writerTask = Task.Run(() => EventWriter(workerCancelToken), workerCancelToken);
+        }
+        catch (OperationCanceledException) {
+            _logger.LogError("EventHubClient setup timed out after {Seconds} seconds", _config.StartupSeconds);
+            isRunning = false;
+            throw new TimeoutException($"EventHubClient setup timed out after {_config.StartupSeconds} seconds. Check network connectivity to EventHub.");
+        }
+        catch (Exception ex) {
+            _logger.LogError(ex, "Failed to setup EventHubClient");
+            isRunning = false;
+            throw new Exception($"Failed to setup EventHubClient: {ex.Message}", ex);
+        }
+    }
+
+    public Task StopAsync(CancellationToken cancellationToken)
+    {
+        StopTimer();
+        return Task.CompletedTask;
+    }
+
+    TaskCompletionSource<bool> ShutdownTCS = new();
+
+    public void StopTimer()
+    {
+        isShuttingDown = true;
+        while (isRunning && _logBuffer.Count > 0)
+        {
+            Task.Delay(100).Wait();
+        }
+
+        cancellationTokenSource.Cancel();
+        isRunning = false;
+        writerTask?.Wait();
+    }
+
+    public async Task EventWriter(CancellationToken token)
+    {
+        if (_batchData is null || _producerClient is null)
+            return;
+
+        try
+        {
+            _logger.LogCritical($"EventHubClient: EventWriter running.");
+            while (!token.IsCancellationRequested)
+            {
+                if (GetNextBatch(99) > 0)
+                {
+                    await _producerClient.SendAsync(_batchData).ConfigureAwait(false);
+                    _batchData.Dispose();
+                    _batchData = await _producerClient.CreateBatchAsync().ConfigureAwait(false);
+                }
+
+                if (!isShuttingDown)
+                {
+                    await Task.Delay(500, token).ConfigureAwait(false);
+                }
+            }
+            _logger.LogInformation("[SHUTDOWN] ✓ EventHubClient exiting");
+
+        }
+        catch (TaskCanceledException)
+        {
+            // Ignore
+        }
+        finally
+        {
+
+            while (true)
+            {
+                if (GetNextBatch(99) > 0)
+                {
+                    await _producerClient.SendAsync(_batchData).ConfigureAwait(false);
+                    _batchData.Dispose();
+                    _batchData = await _producerClient.CreateBatchAsync().ConfigureAwait(false);
+                }
+                else
+                {
+                    break;
+                }
+            }
+
+            await Task.Delay(500).ConfigureAwait(false);
+            await _producerClient.CloseAsync().ConfigureAwait(false);
+        }
+    }
+
+    private int GetNextBatch(int count)
+    {
+        if (_batchData is null)
+            return 0;
+
+        int initialCount = count;
+
+        for (int i = 0; i < initialCount; i++)
+        {
+            if (!_logBuffer.TryDequeue(out string? log))
+            {
+                break;
+            }
+
+            var eventData = new EventData(Encoding.UTF8.GetBytes(log));
+            if (_batchData.TryAdd(eventData))
+            {
+                Interlocked.Decrement(ref entryCount);
+            }
+            else
+            {
+                _logBuffer.Enqueue(log);
+                _logger.LogError("Failed to add log to batchData.");
+            }
+        }
+
+        return _batchData.Count;
+    }
+
+    public void SendData(string? value)
+    {
+        if (!isRunning || isShuttingDown) return;
+
+        if (value == null) return;
+
+        if (value.StartsWith("\n\n"))
+            value = value.Substring(2);
+
+        Interlocked.Increment(ref entryCount);
+        _logBuffer.Enqueue(value);
+    }
+
+    public void SendData(ChatEvent eventData)
+    {
+        if (!isRunning || isShuttingDown) return;
+
+        string jsonData = JsonSerializer.Serialize(eventData, eventData.GetType());
+        SendData(jsonData);
+    }
+}

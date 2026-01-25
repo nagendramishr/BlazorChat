@@ -12,6 +12,7 @@ using src.Services;
 using Microsoft.AspNetCore.Authorization;
 using src.Authorization;
 using src.HealthChecks;
+using src.Services.EventHub;
 using System.Threading.RateLimiting;
 
 var builder = WebApplication.CreateBuilder(args);
@@ -97,6 +98,28 @@ builder.Services.AddScoped<IOrganizationAdminService, OrganizationAdminService>(
 
 // Add Layout State Service (Scoped for per-circuit state)
 builder.Services.AddScoped<ILayoutStateService, LayoutStateService>();
+
+// Add Event Hub Client for publishing chat events to Reporting Service
+var eventHubConfig = new EventHubConfig(
+    connectionString: builder.Configuration["EventHub:ConnectionString"],
+    eventHubName: builder.Configuration["EventHub:EventHubName"],
+    eventHubNamespace: builder.Configuration["EventHub:EventHubNamespace"],
+    startupSeconds: builder.Configuration.GetValue<int>("EventHub:StartupSeconds", 10)
+);
+
+// Only register real client if Event Hub is configured
+bool hasEventHubConfig = !string.IsNullOrEmpty(eventHubConfig.ConnectionString) || 
+                         !string.IsNullOrEmpty(eventHubConfig.EventHubNamespace);
+if (hasEventHubConfig && !string.IsNullOrEmpty(eventHubConfig.EventHubName))
+{
+    builder.Services.AddSingleton(eventHubConfig);
+    builder.Services.AddSingleton<IEventClient, EventHubClient>();
+    builder.Services.AddHostedService(sp => (EventHubClient)sp.GetRequiredService<IEventClient>());
+}
+else
+{
+    builder.Services.AddSingleton<IEventClient, NullEventClient>();
+}
 
 // Add Thread State Service (configurable: InMemory, CosmosDb, or Redis)
 var threadStateProvider = builder.Configuration.GetValue<string>("ThreadState:Provider") ?? "InMemory";
