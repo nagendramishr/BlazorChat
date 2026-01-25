@@ -98,6 +98,42 @@ builder.Services.AddScoped<IOrganizationAdminService, OrganizationAdminService>(
 // Add Layout State Service (Scoped for per-circuit state)
 builder.Services.AddScoped<ILayoutStateService, LayoutStateService>();
 
+// Add Thread State Service (configurable: InMemory, CosmosDb, or Redis)
+var threadStateProvider = builder.Configuration.GetValue<string>("ThreadState:Provider") ?? "InMemory";
+switch (threadStateProvider.ToLowerInvariant())
+{
+    case "redis":
+        // Requires: Microsoft.Extensions.Caching.StackExchangeRedis NuGet package
+        // To enable Redis, run: dotnet add package Microsoft.Extensions.Caching.StackExchangeRedis
+        // Then uncomment the following code:
+        /*
+        var redisConnectionString = builder.Configuration.GetValue<string>("Redis:ConnectionString");
+        if (!string.IsNullOrWhiteSpace(redisConnectionString))
+        {
+            builder.Services.AddStackExchangeRedisCache(options =>
+            {
+                options.Configuration = redisConnectionString;
+                options.InstanceName = builder.Configuration.GetValue<string>("Redis:InstanceName") ?? "BlazorChat:";
+            });
+            builder.Services.AddScoped<src.Services.Cache.IThreadStateService, src.Services.Cache.RedisThreadStateService>();
+            break;
+        }
+        */
+        // Fall back to in-memory until Redis package is added
+        builder.Services.AddDistributedMemoryCache();
+        builder.Services.AddScoped<src.Services.Cache.IThreadStateService, src.Services.Cache.InMemoryThreadStateService>();
+        break;
+        
+    case "cosmosdb":
+        builder.Services.AddScoped<src.Services.Cache.IThreadStateService, src.Services.Cache.CosmosDbThreadStateService>();
+        break;
+        
+    case "inmemory":
+    default:
+        builder.Services.AddScoped<src.Services.Cache.IThreadStateService, src.Services.Cache.InMemoryThreadStateService>();
+        break;
+}
+
 builder.Services.AddAuthorization(options =>
 {
     options.AddPolicy("MustOwnConversation", policy =>
@@ -160,6 +196,9 @@ builder.Services.AddRateLimiter(options =>
 
 // Add Message Sanitization Service
 builder.Services.AddSingleton<IMessageSanitizationService, MessageSanitizationService>();
+
+// Add Chat Application Service (orchestrates chat operations)
+builder.Services.AddScoped<src.Services.Application.IChatApplicationService, src.Services.Application.ChatApplicationService>();
 
 // Add Theme Service
 builder.Services.AddScoped<IThemeService, ThemeService>();

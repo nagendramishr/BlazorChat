@@ -20,6 +20,12 @@ public class Conversation
     public DateTime UpdatedAt { get; set; } = DateTime.UtcNow;
 
     /// <summary>
+    /// Optional: Organization this conversation belongs to
+    /// </summary>
+    [JsonPropertyName("organizationId")]
+    public string? OrganizationId { get; set; }
+
+    /// <summary>
     /// Optional: Total message count in this conversation
     /// </summary>
     [JsonPropertyName("messageCount")]
@@ -30,4 +36,25 @@ public class Conversation
     /// </summary>
     [JsonPropertyName("isDeleted")]
     public bool IsDeleted { get; set; } = false;
+
+    /// <summary>
+    /// AI Agent Thread ID for conversation continuity across sessions.
+    /// Stored to allow resuming conversations with full context.
+    /// </summary>
+    [JsonPropertyName("agentThreadId")]
+    public string? AgentThreadId { get; set; }
+
+    /// <summary>
+    /// When the agent thread was created.
+    /// Used to track thread age for expiry management.
+    /// </summary>
+    [JsonPropertyName("agentThreadCreatedAt")]
+    public DateTime? AgentThreadCreatedAt { get; set; }
+
+    /// <summary>
+    /// When the agent thread expires.
+    /// After expiry, a new thread should be created.
+    /// </summary>
+    [JsonPropertyName("agentThreadExpiry")]
+    public DateTime? AgentThreadExpiry { get; set; }
 }

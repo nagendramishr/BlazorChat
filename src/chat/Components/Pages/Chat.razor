@@ -5,12 +5,8 @@
 @using Microsoft.AspNetCore.Authorization
 @using src.Models
 @using src.Services
-@inject ICosmosDbService CosmosDbService
-@inject IAIFoundryService AIFoundryService
-@inject IConversationContextManager ContextManager
-@inject ITelemetryService TelemetryService
-@inject IAuthorizationService AuthorizationService
-@inject AuthenticationStateProvider AuthenticationStateProvider
+@using src.Services.Application
+@inject IChatApplicationService ChatService
 @inject IOrganizationService OrganizationService
 @inject ISnackbar Snackbar
 @inject ILogger<Chat> _logger
@@ -27,13 +23,13 @@
             @if (_sidebarOpen)
             {
                 <MudText Typo="Typo.subtitle2" Class="ml-2">Conversations</MudText>
-                }
-                <MudTooltip Text="@(_sidebarOpen ? "Collapse sidebar" : "Expand sidebar")">
-                    <MudIconButton Icon="@(_sidebarOpen ? Icons.Material.Filled.ChevronLeft : Icons.Material.Filled.ChevronRight)" 
-                                  Size="Size.Small"
-                                  OnClick="ToggleSidebar" />
-                </MudTooltip>
-            </MudPaper>
+            }
+            <MudTooltip Text="@(_sidebarOpen ? "Collapse sidebar" : "Expand sidebar")">
+                <MudIconButton Icon="@(_sidebarOpen ? Icons.Material.Filled.ChevronLeft : Icons.Material.Filled.ChevronRight)" 
+                              Size="Size.Small"
+                              OnClick="ToggleSidebar" />
+            </MudTooltip>
+        </MudPaper>
             
             @if (_sidebarOpen)
             {
@@ -49,13 +45,13 @@
                 <MudDivider />
                 
                 <div style="flex: 1; overflow-y: auto;">
-                    @if (conversations == null)
+                    @if (_conversations == null)
                     {
                         <MudPaper Elevation="0" Class="pa-2">
                             <MudProgressLinear Indeterminate="true" Color="Color.Primary" />
                         </MudPaper>
                     }
-                    else if (!conversations.Any())
+                    else if (!_conversations.Any())
                     {
                         <MudPaper Elevation="0" Class="pa-2">
                             <MudText Typo="Typo.body2" Color="Color.Secondary">No conversations yet</MudText>
@@ -63,11 +59,11 @@
                     }
                     else
                     {
-                        @foreach (var conv in conversations)
+                        @foreach (var conv in _conversations)
                         {
-                            <MudPaper Elevation="@(currentConversationId == conv.Id ? 2 : 0)" 
+                            <MudPaper Elevation="@(_currentConversationId == conv.Id ? 2 : 0)" 
                                      Class="pa-2 ma-1" 
-                                     Style="@(currentConversationId == conv.Id ? "background-color: #e3f2fd;" : "")">
+                                     Style="@(_currentConversationId == conv.Id ? "background-color: #e3f2fd;" : "")">
                                 <div class="d-flex align-center justify-space-between">
                                     <div class="flex-grow-1 cursor-pointer" @onclick="@(() => SelectConversation(conv.Id))">
                                         <MudText Typo="Typo.body1">@conv.Title</MudText>
@@ -96,14 +92,14 @@
                 </MudTooltip>
                 <MudDivider />
                 <div style="flex: 1; overflow-y: auto;">
-                    @if (conversations != null)
+                    @if (_conversations != null)
                     {
-                        @foreach (var conv in conversations)
+                        @foreach (var conv in _conversations)
                         {
                             <MudTooltip Text="@conv.Title" Placement="Placement.Right">
                                 <MudIconButton Icon="@Icons.Material.Filled.Chat" 
                                               Size="Size.Small"
-                                              Color="@(currentConversationId == conv.Id ? Color.Primary : Color.Default)"
+                                              Color="@(_currentConversationId == conv.Id ? Color.Primary : Color.Default)"
                                               OnClick="@(() => SelectConversation(conv.Id))"
                                               Class="ma-1" />
                             </MudTooltip>
@@ -123,9 +119,9 @@
                                   Color="Color.Primary" 
                                   OnClick="ToggleSidebar" />
                 </MudTooltip>
-                <MudText Typo="Typo.h6" Class="ml-2">@currentConversationTitle</MudText>
+                <MudText Typo="Typo.h6" Class="ml-2">@_currentConversationTitle</MudText>
                 <MudSpacer />
-                @if (!string.IsNullOrEmpty(currentConversationId))
+                @if (!string.IsNullOrEmpty(_currentConversationId))
                 {
                     <MudIconButton Icon="@Icons.Material.Filled.MoreVert" Color="Color.Default" />
                 }
@@ -133,17 +129,17 @@
 
             @* Messages Area *@
             <MudPaper Class="flex-grow-1 pa-4" Style="overflow-y: auto; height: 100%;" id="messageContainer">
-                @if (isLoadingMessages)
+                @if (_isLoadingMessages)
                 {
                     <MudProgressLinear Indeterminate="true" Color="Color.Primary" />
                 }
-                else if (!messages.Any() && !string.IsNullOrEmpty(currentConversationId))
+                else if (!_messages.Any() && !string.IsNullOrEmpty(_currentConversationId))
                 {
                     <MudText Typo="Typo.body1" Align="Align.Center" Class="mt-8">
                         No messages yet. Start the conversation!
                     </MudText>
                 }
-                else if (string.IsNullOrEmpty(currentConversationId))
+                else if (string.IsNullOrEmpty(_currentConversationId))
                 {
                     <div class="d-flex flex-column align-center justify-center" style="height: 100%;">
                         <MudIcon Icon="@Icons.Material.Filled.Chat" Size="Size.Large" Color="Color.Secondary" />
@@ -155,7 +151,7 @@
                 }
                 else
                 {
-                    @foreach (var message in messages)
+                    @foreach (var message in _messages)
                     {
                         <div class="@GetMessageClass(message)" style="margin-bottom: 16px;">
                             <MudPaper Elevation="1" Class="pa-3" Style="@GetMessageStyle(message)">
@@ -175,7 +171,7 @@
                         </div>
                     }
                     
-                    @if (isLoading)
+                    @if (_isLoading)
                     {
                         <div class="d-flex align-start" style="margin-bottom: 16px;">
                             <MudPaper Elevation="1" Class="pa-3" Style="max-width: 70%; background-color: #f5f5f5;">
@@ -187,23 +183,23 @@
             </MudPaper>
 
             @* Input Area *@
-            @if (!string.IsNullOrEmpty(currentConversationId))
+            @if (!string.IsNullOrEmpty(_currentConversationId))
             {
                 <MudPaper Elevation="2" Class="pa-3">
                     <div class="d-flex gap-2">
-                        <MudTextField @bind-Value="currentMessage"
+                        <MudTextField @bind-Value="_currentMessage"
                                      @bind-Value:after="StateHasChanged"
                                      Label="Type a message..."
                                      Variant="Variant.Outlined"
                                      Lines="3"
                                      FullWidth="true"
                                      Immediate="true"
-                                     Disabled="@isLoading"
+                                     Disabled="@_isLoading"
                                      OnKeyDown="HandleKeyPress" />
                         <MudButton Variant="Variant.Filled"
                                   Color="Color.Primary"
                                   StartIcon="@Icons.Material.Filled.Send"
-                                  Disabled="@(string.IsNullOrWhiteSpace(currentMessage) || isLoading)"
+                                  Disabled="@(string.IsNullOrWhiteSpace(_currentMessage) || _isLoading)"
                                   OnClick="SendMessage"
                                   Style="align-self: flex-end;">
                             Send
@@ -224,16 +220,17 @@
     [CascadingParameter]
     private Task<AuthenticationState>? AuthenticationStateTask { get; set; }
 
-    private List<Conversation>? conversations;
-    private List<Message> messages = new(); // Initialize to empty to prevent loading indicator
-    private string? currentConversationId;
-    private string currentConversationTitle = "Chat";
-    private string currentMessage = string.Empty;
-    private bool isLoading = false;
-    private bool isLoadingMessages = false;
+    // UI State
+    private List<Conversation>? _conversations;
+    private List<Message> _messages = new();
+    private string? _currentConversationId;
+    private string _currentConversationTitle = "Chat";
+    private string _currentMessage = string.Empty;
+    private bool _isLoading = false;
+    private bool _isLoadingMessages = false;
     private bool _sidebarOpen = true;
-    private string? currentUserId;
-    private string? errorMessage;
+    private string? _currentUserId;
+    private CancellationTokenSource? _sendMessageCts;
 
     private string GetSidebarStyle() => _sidebarOpen 
         ? "width: 300px; height: 100%; transition: width 0.2s ease-in-out;" 
@@ -243,22 +240,20 @@
 
     protected override async Task OnInitializedAsync()
     {
-        // Organization is already loaded by OrganizationResolver - no need to reload
-
         // Get current user
         if (AuthenticationStateTask != null)
         {
             var authState = await AuthenticationStateTask;
-            currentUserId = authState.User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value;
+            _currentUserId = authState.User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value;
         }
 
         // Default userId for testing if not authenticated
-        if (string.IsNullOrEmpty(currentUserId))
+        if (string.IsNullOrEmpty(_currentUserId))
         {
-            currentUserId = "test-user";
+            _currentUserId = "test-user";
         }
 
-        // Load conversations from Cosmos DB
+        // Load conversations
         await LoadConversations();
 
         // If a conversation ID is provided in the route, load it
@@ -272,21 +267,19 @@
     {
         try
         {
-            _logger.LogInformation("Loading conversations for user {UserId}", currentUserId);
-            var conversationList = await CosmosDbService.GetConversationsAsync(currentUserId!, maxItems: 50);
-            conversations = conversationList.ToList();
-            _logger.LogInformation("Loaded {Count} conversations", conversations.Count);
+            _logger.LogInformation("Loading conversations for user {UserId}", _currentUserId);
+            var conversationList = await ChatService.GetUserConversationsAsync(_currentUserId!);
+            _conversations = conversationList.ToList();
+            _logger.LogInformation("Loaded {Count} conversations", _conversations.Count);
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Failed to load conversations for user {UserId}", currentUserId);
-            errorMessage = $"Failed to load conversations: {ex.Message}";
-            Snackbar.Add(errorMessage, Severity.Error);
-            conversations = new List<Conversation>(); // Set to empty list so loading indicator stops
+            _logger.LogError(ex, "Failed to load conversations for user {UserId}", _currentUserId);
+            Snackbar.Add($"Failed to load conversations: {ex.Message}", Severity.Error);
+            _conversations = new List<Conversation>();
         }
         finally
         {
-            // Ensure UI updates after loading completes
             StateHasChanged();
         }
     }
@@ -295,19 +288,9 @@
     {
         try
         {
-            var newConv = new Conversation
-            {
-                Id = Guid.NewGuid().ToString(),
-                Title = "New Conversation",
-                UserId = currentUserId!,
-                CreatedAt = DateTime.UtcNow,
-                UpdatedAt = DateTime.UtcNow
-            };
-
-            var savedConv = await CosmosDbService.CreateConversationAsync(newConv);
-            conversations?.Insert(0, savedConv);
+            var savedConv = await ChatService.CreateConversationAsync(_currentUserId!);
+            _conversations?.Insert(0, savedConv);
             await SelectConversation(savedConv.Id);
-            
             Snackbar.Add("New conversation created", Severity.Success);
         }
         catch (Exception ex)
@@ -318,43 +301,27 @@
 
     private async Task SelectConversation(string conversationId)
     {
-        var conversation = conversations?.FirstOrDefault(c => c.Id == conversationId);
-
-        // If not found in local list (e.g. deep link), try to fetch it securely
+        // Try to find in local cache first
+        var conversation = _conversations?.FirstOrDefault(c => c.Id == conversationId);
+        
+        // If not found (e.g. deep link), fetch from service
         if (conversation == null)
         {
-            // The service method now performs a security check on userId
-            conversation = await CosmosDbService.GetConversationAsync(conversationId, currentUserId!);
-            
+            conversation = await ChatService.GetConversationAsync(conversationId, _currentUserId!);
             if (conversation == null)
             {
                 Snackbar.Add("Conversation not found or you do not have permission to view it.", Severity.Error);
-                // Reset view if we were trying to load an invalid one
-                if (currentConversationId == conversationId) 
-                {
-                    currentConversationId = null;
-                    currentConversationTitle = "Chat";
-                    messages = new List<Message>();
-                }
                 return;
             }
         }
 
-        // Double-check with Authorization Service Policy
-        var authState = await AuthenticationStateProvider.GetAuthenticationStateAsync();
-        var authResult = await AuthorizationService.AuthorizeAsync(authState.User, conversation, "MustOwnConversation");
+        _currentConversationId = conversationId;
+        _currentConversationTitle = conversation.Title;
 
-        if (!authResult.Succeeded)
-        {
-            _logger.LogWarning("Authorization failed for user {UserId} on conversation {ConversationId}", currentUserId, conversationId);
-            Snackbar.Add("Access Denied.", Severity.Error);
-            return;
-        }
+        // Resume conversation (for future thread rehydration)
+        await ChatService.ResumeConversationAsync(conversationId, _currentUserId!);
 
-        currentConversationId = conversationId;
-        currentConversationTitle = conversation.Title;
-
-        // Load messages for this conversation
+        // Load messages
         await LoadMessages(conversationId);
     }
 
@@ -362,25 +329,25 @@
     {
         try
         {
-            // Confirm deletion
-            var conversation = conversations?.FirstOrDefault(c => c.Id == conversationId);
+            var conversation = _conversations?.FirstOrDefault(c => c.Id == conversationId);
             if (conversation == null) return;
 
-            // Delete from Cosmos DB
-            await CosmosDbService.DeleteConversationAsync(conversationId, currentUserId!);
-
-            // Clear AI thread
-            await AIFoundryService.ClearConversationAsync(conversationId);
+            var deleted = await ChatService.DeleteConversationAsync(conversationId, _currentUserId!);
+            if (!deleted)
+            {
+                Snackbar.Add("Failed to delete conversation", Severity.Error);
+                return;
+            }
 
             // Remove from local list
-            conversations?.RemoveAll(c => c.Id == conversationId);
+            _conversations?.RemoveAll(c => c.Id == conversationId);
 
-            // If we deleted the current conversation, clear the view
-            if (currentConversationId == conversationId)
+            // Clear view if we deleted the current conversation
+            if (_currentConversationId == conversationId)
             {
-                currentConversationId = null;
-                currentConversationTitle = "Chat";
-                messages = new List<Message>();
+                _currentConversationId = null;
+                _currentConversationTitle = "Chat";
+                _messages = new List<Message>();
             }
 
             Snackbar.Add($"Conversation '{conversation.Title}' deleted", Severity.Success);
@@ -394,168 +361,122 @@
 
     private async Task LoadMessages(string conversationId)
     {
-        isLoadingMessages = true;
+        _isLoadingMessages = true;
         StateHasChanged();
 
         try
         {
-            var messageList = await CosmosDbService.GetMessagesAsync(conversationId, maxItems: 100);
-            messages = messageList.ToList();
+            var messageList = await ChatService.GetMessagesAsync(conversationId, _currentUserId!);
+            _messages = messageList.ToList();
         }
         catch (Exception ex)
         {
             Snackbar.Add($"Failed to load messages: {ex.Message}", Severity.Error);
-            messages = new List<Message>();
+            _messages = new List<Message>();
         }
         finally
         {
-            isLoadingMessages = false;
+            _isLoadingMessages = false;
             StateHasChanged();
         }
     }
 
     private async Task SendMessage()
     {
-        if (string.IsNullOrWhiteSpace(currentMessage) || string.IsNullOrEmpty(currentConversationId))
+        if (string.IsNullOrWhiteSpace(_currentMessage) || string.IsNullOrEmpty(_currentConversationId))
             return;
 
+        var sentMessage = _currentMessage;
+        _currentMessage = string.Empty;
+        
+        // Add user message to UI immediately
         var userMessage = new Message
         {
             Id = Guid.NewGuid().ToString(),
-            ConversationId = currentConversationId,
-            UserId = currentUserId!,
-            Content = currentMessage,
+            ConversationId = _currentConversationId,
+            UserId = _currentUserId!,
+            Content = sentMessage,
             Role = MessageRole.User,
             Timestamp = DateTime.UtcNow
         };
+        _messages.Add(userMessage);
 
-        messages?.Add(userMessage);
-        var sentMessage = currentMessage;
-        currentMessage = string.Empty;
+        // Create assistant message placeholder
+        var assistantMessage = new Message
+        {
+            Id = Guid.NewGuid().ToString(),
+            ConversationId = _currentConversationId,
+            UserId = _currentUserId!,
+            Content = string.Empty,
+            Role = MessageRole.Assistant,
+            Timestamp = DateTime.UtcNow
+        };
+        _messages.Add(assistantMessage);
+
+        _isLoading = true;
         StateHasChanged();
+
+        _sendMessageCts = new CancellationTokenSource();
 
         try
         {
-            // Track message sent
-            TelemetryService.TrackMessageSent(currentUserId!, currentConversationId, sentMessage.Length);
+            // Stream AI response via application service
+            await foreach (var chunk in ChatService.SendMessageStreamingAsync(
+                _currentConversationId, _currentUserId!, sentMessage, _sendMessageCts.Token))
+            {
+                if (!string.IsNullOrEmpty(chunk.Error))
+                {
+                    Snackbar.Add($"Error: {chunk.Error}", Severity.Error);
+                    assistantMessage.Content = "Sorry, I encountered an error processing your request. Please try again.";
+                    break;
+                }
 
-            // Save user message to Cosmos DB
-            await CosmosDbService.SaveMessageAsync(userMessage);
+                assistantMessage.Content += chunk.Content;
+                assistantMessage.Id = chunk.MessageId ?? assistantMessage.Id;
+                StateHasChanged();
 
-            // Update conversation timestamp
-            var conversation = conversations?.FirstOrDefault(c => c.Id == currentConversationId);
+                if (chunk.IsComplete)
+                {
+                    break;
+                }
+            }
+
+            // Update conversation in local list
+            var conversation = _conversations?.FirstOrDefault(c => c.Id == _currentConversationId);
             if (conversation != null)
             {
                 conversation.UpdatedAt = DateTime.UtcNow;
-                conversation.MessageCount++;
+                conversation.MessageCount += 2; // User + assistant messages
                 
-                // Auto-generate title from first message if still "New Conversation"
-                if (conversation.Title == "New Conversation" && conversation.MessageCount == 1)
+                // Update title if auto-generated
+                if (conversation.Title == "New Conversation")
                 {
                     conversation.Title = sentMessage.Length > 50 
                         ? sentMessage.Substring(0, 47) + "..." 
                         : sentMessage;
-                    currentConversationTitle = conversation.Title;
-                }
-                
-                await CosmosDbService.UpdateConversationAsync(conversation);
-            }
-
-            // Check if context trimming is needed
-            if (messages != null && ContextManager.ExceedsTokenLimit(messages, maxTokens: 6000))
-            {
-                Snackbar.Add("Long conversation detected. Context may be trimmed for optimal performance.", Severity.Info);
-                
-                // Trim context to fit within token limits
-                var trimmedMessages = ContextManager.TrimMessages(messages, maxTokens: 4000).ToList();
-                var estimatedTokens = ContextManager.EstimateTokenCount(trimmedMessages);
-                
-                TelemetryService.TrackConversationMetrics(currentConversationId, messages.Count, estimatedTokens);
-            }
-
-            // Call AI Foundry service for response with streaming
-            isLoading = true;
-            StateHasChanged();
-
-            var assistantMessage = new Message
-            {
-                Id = Guid.NewGuid().ToString(),
-                ConversationId = currentConversationId,
-                UserId = currentUserId!,
-                Content = string.Empty,
-                Role = MessageRole.Assistant,
-                Timestamp = DateTime.UtcNow
-            };
-
-            messages?.Add(assistantMessage);
-            StateHasChanged();
-
-            try
-            {
-                // Stream AI response
-                await foreach (var textChunk in AIFoundryService.SendMessageStreamingAsync(
-                    currentConversationId, sentMessage))
-                {
-                    assistantMessage.Content += textChunk;
-                    StateHasChanged();
-                }
-
-                // Save assistant message to Cosmos DB
-                await CosmosDbService.SaveMessageAsync(assistantMessage);
-            }
-            catch (Exception aiEx)
-            {
-                Snackbar.Add($"AI service error: {aiEx.Message}", Severity.Error);
-                
-                // Track exception
-                TelemetryService.TrackException(aiEx, currentUserId!, currentConversationId, new Dictionary<string, string>
-                {
-                    { "Operation", "AIResponse" },
-                    { "MessageLength", sentMessage.Length.ToString() }
-                });
-                
-                // Update message to show error
-                assistantMessage.Content = "Sorry, I encountered an error processing your request. Please try again.";
-                
-                // Save error message to Cosmos DB
-                try
-                {
-                    await CosmosDbService.SaveMessageAsync(assistantMessage);
-                }
-                catch
-                {
-                    // If we can't save, remove the message from the list
-                    messages?.Remove(assistantMessage);
+                    _currentConversationTitle = conversation.Title;
                 }
             }
-            
-            // Update conversation
-            if (conversation != null)
-            {
-                conversation.UpdatedAt = DateTime.UtcNow;
-                conversation.MessageCount++;
-                await CosmosDbService.UpdateConversationAsync(conversation);
-            }
+        }
+        catch (OperationCanceledException)
+        {
+            _logger.LogInformation("Message sending was cancelled");
         }
         catch (Exception ex)
         {
             Snackbar.Add($"Failed to send message: {ex.Message}", Severity.Error);
+            _logger.LogError(ex, "Error sending message in conversation {ConversationId}", _currentConversationId);
             
-            // Track exception
-            TelemetryService.TrackException(ex, currentUserId!, currentConversationId, new Dictionary<string, string>
-            {
-                { "Operation", "SendMessage" }
-            });
-            
-            // Remove the message that failed to save
-            if (messages != null && messages.Count > 0)
-            {
-                messages.RemoveAt(messages.Count - 1);
-            }
+            // Remove failed messages
+            _messages.Remove(userMessage);
+            _messages.Remove(assistantMessage);
         }
         finally
         {
-            isLoading = false;
+            _isLoading = false;
+            _sendMessageCts?.Dispose();
+            _sendMessageCts = null;
+            StateHasChanged();
         }
     }
 
@@ -567,12 +488,8 @@
         }
     }
 
-    private string GetMessageClass(Message message)
-    {
-        return message.Role == MessageRole.User 
-            ? "d-flex justify-end" 
-            : "d-flex justify-start";
-    }
+    private string GetMessageClass(Message message) =>
+        message.Role == MessageRole.User ? "d-flex justify-end" : "d-flex justify-start";
 
     private string GetMessageStyle(Message message)
     {

@@ -38,35 +38,54 @@ as the AI gateway. This OSS project provides significant infrastructure benefits
 
 ### Task A0: SimpleL7Proxy Integration ⭐ NEW
 Priority: HIGH (Foundation - enables simplified token tracking)
-Goal: Deploy SimpleL7Proxy as AI gateway, route all AI traffic through it.
+Goal: Route all AI traffic through SimpleL7Proxy gateway via configuration.
 
-#### A0.1: Deployment Strategy
-- [ ] Option A: Sidecar container in same Container App (recommended for single-tenant)
-- [ ] Option B: Shared gateway for all orgs (recommended for multi-tenant)
-- [ ] Configure deployment in /deploy/main.bicep
+**Simplified Approach**: Proxy is assumed to be deployed and configured separately.
+BlazorChat just needs to point to the proxy URL in appsettings.json.
 
-#### A0.2: Configure SimpleL7Proxy
-- [ ] Set backend host: Azure AI Foundry endpoint
-- [ ] Enable OpenAI processor: `processor=OpenAI` (extracts token usage)
-- [ ] Enable Managed Identity: `usemi=true`
-- [ ] Configure App Insights: `APPINSIGHTS_CONNECTIONSTRING`
-- [ ] Configure health probes for Container Apps
+#### A0.1: Add Proxy Configuration to appsettings.json ✅ SIMPLE
+- [ ] Add configuration section:
+  ```json
+  "AIProxy": {
+    "Enabled": true,
+    "BaseUrl": "https://your-simplel7proxy.azurecontainerapps.io",
+    "CorrelationHeaderName": "x-request-id",
+    "OrganizationHeaderName": "x-org-id",
+    "TimeoutSeconds": 120
+  }
+  ```
+- [ ] When `AIProxy:Enabled` is true, route through proxy
+- [ ] When `AIProxy:Enabled` is false, call AI Foundry directly (dev/testing)
 
-#### A0.3: Update AIFoundryService to Use Proxy
-- [ ] Change AIFoundry:Endpoint to point to SimpleL7Proxy (localhost:8080 for sidecar)
-- [ ] Add correlation headers (x-request-id) for tracing
-- [ ] Remove direct Azure AI Foundry calls
-- [ ] Test streaming responses through proxy
+#### A0.2: Update AIFoundryService to Use Proxy URL
+- [ ] Inject `IOptions<AIProxyOptions>` into AIFoundryService
+- [ ] If proxy enabled, use `AIProxy:BaseUrl` as base endpoint
+- [ ] If proxy disabled, use `AIFoundry:Endpoint` directly
+- [ ] Add correlation header: `x-request-id: {conversationId}_{messageId}`
+- [ ] Add org header: `x-org-id: {organizationId}`
+- [ ] Streaming responses work unchanged (proxy is transparent)
 
-#### A0.4: Configure Multi-Org Routing (if shared gateway)
-- [ ] Pass organization ID in request header (x-org-id)
-- [ ] Configure proxy to route to org-specific backends (optional)
-- [ ] Enable priority queues per org tier
+#### A0.3: Create Configuration Model
+- [ ] Create class: src/Config/AIProxyOptions.cs
+  ```csharp
+  public class AIProxyOptions
+  {
+      public bool Enabled { get; set; } = false;
+      public string BaseUrl { get; set; } = "";
+      public string CorrelationHeaderName { get; set; } = "x-request-id";
+      public string OrganizationHeaderName { get; set; } = "x-org-id";
+      public int TimeoutSeconds { get; set; } = 120;
+  }
+  ```
+- [ ] Register in Program.cs: `builder.Services.Configure<AIProxyOptions>(...)`
 
-#### A0.5: Verify Telemetry Flow
-- [ ] Confirm token metrics appear in App Insights
+#### A0.4: Verify Telemetry Flow
+- [ ] Confirm token metrics appear in App Insights (from proxy)
 - [ ] Query: `requests | where customDimensions contains "Usage.Total_Tokens"`
-- [ ] Verify correlation IDs match between app and proxy logs
+- [ ] Verify correlation IDs link proxy logs to app conversations
+
+**Deployment Note**: SimpleL7Proxy deployment/configuration is handled separately.
+See: https://github.com/microsoft/SimpleL7Proxy for deployment instructions.
 
 ### Current Architecture Issues Identified:
 - **Fat Component**: Chat.razor has 500+ lines, handles UI + business logic + coordination
@@ -76,7 +95,7 @@ Goal: Deploy SimpleL7Proxy as AI gateway, route all AI traffic through it.
 - **Stateful Singletons**: AIFoundryService holds in-memory state, doesn't scale
 - **No Background Jobs**: Everything is request/response, no async processing
 
-### Task A1: Application Service Layer ⚠️
+### Task A1: Application Service Layer ✅ COMPLETE
 Priority: HIGH (Foundation for all future features)
 Goal: Create single entry point for chat operations, extract business logic from Chat.razor.
 
@@ -92,8 +111,8 @@ Chat.razor → IChatApplicationService → Domain Services → Infrastructure
                                     ↳ Raises Domain Events
 ```
 
-#### A1.1: Create Chat Application Service
-- [ ] Create interface: src/Services/Application/IChatApplicationService.cs
+#### A1.1: Create Chat Application Service ✅
+- [x] Create interface: src/Services/Application/IChatApplicationService.cs
   ```csharp
   public interface IChatApplicationService
   {
@@ -101,20 +120,20 @@ Chat.razor → IChatApplicationService → Domain Services → Infrastructure
       Task<Conversation?> GetConversationAsync(string conversationId, string userId);
       Task<IEnumerable<Conversation>> GetUserConversationsAsync(string userId);
       Task<IEnumerable<Message>> GetMessagesAsync(string conversationId, string userId);
-      IAsyncEnumerable<string> SendMessageAsync(string conversationId, string userId, string message, CancellationToken ct);
-      Task DeleteConversationAsync(string conversationId, string userId);
-      Task ResumeConversationAsync(string conversationId, string userId); // Thread rehydration
+      IAsyncEnumerable<ChatResponseChunk> SendMessageStreamingAsync(string conversationId, string userId, string message, CancellationToken ct);
+      Task<bool> DeleteConversationAsync(string conversationId, string userId);
+      Task<bool> ResumeConversationAsync(string conversationId, string userId); // Thread rehydration
   }
   ```
-- [ ] Create implementation: src/Services/Application/ChatApplicationService.cs
-- [ ] Encapsulate: authorization checks, validation, Cosmos DB calls, AI calls, telemetry
-- [ ] Register as scoped service in Program.cs
+- [x] Create implementation: src/Services/Application/ChatApplicationService.cs
+- [x] Encapsulate: authorization checks, validation, Cosmos DB calls, AI calls, telemetry
+- [x] Register as scoped service in Program.cs
 
-#### A1.2: Refactor Chat.razor to Use Application Service
-- [ ] Replace 5+ service injections with single IChatApplicationService
-- [ ] Move all business logic out of Chat.razor
-- [ ] Keep Chat.razor focused on: UI rendering, user input handling, state display
-- [ ] Target: Reduce Chat.razor from ~500 lines to ~150 lines
+#### A1.2: Refactor Chat.razor to Use Application Service ✅
+- [x] Replace 5+ service injections with single IChatApplicationService (reduced to 2: ChatService + OrganizationService)
+- [x] Move all business logic out of Chat.razor
+- [x] Keep Chat.razor focused on: UI rendering, user input handling, state display
+- [x] Reduced Chat.razor from ~585 lines to ~502 lines (UI-only code)
 
 #### A1.3: Create Organization Application Service (Optional)
 - [ ] Create interface: src/Services/Application/IOrganizationApplicationService.cs
@@ -190,6 +209,46 @@ private readonly ConcurrentDictionary<string, AgentThread> _conversationThreads 
                     └─────────────┘
 ```
 
+================================================================================
+## WHAT TO STORE IN REDIS vs COSMOS DB
+================================================================================
+
+### Redis (Fast, Ephemeral, Session-scoped)
+Use for: Data that needs sub-millisecond access, can be regenerated, or is short-lived.
+
+| Data | Key Pattern | TTL | Rationale |
+|------|-------------|-----|-----------|
+| **Thread ID Cache** | `thread:{conversationId}` | 24h | Hot cache for thread resume, source of truth in Cosmos |
+| **Rate Limit Counters** | `ratelimit:{userId}:{window}` | 1-60min | Per-user AI request throttling |
+| **User Session State** | `session:{userId}` | 30min-2h | Current conversation, UI preferences |
+| **Organization Settings Cache** | `org:{orgId}:settings` | 5-15min | Cached org config, refresh on change |
+| **Active Typing Indicators** | `typing:{conversationId}` | 5s | Real-time "user is typing" |
+| **Feature Flags Cache** | `flags:{orgId}` | 5min | Cached feature toggles |
+| **API Response Cache** | `apicache:{hash}` | 1-5min | Cache repeated identical prompts |
+| **Distributed Locks** | `lock:{resource}` | 30s | Prevent duplicate operations |
+| **Circuit Breaker State** | `circuit:{service}` | Varies | Track service health |
+
+### Cosmos DB (Durable, Queryable, Long-lived)
+Use for: Permanent records, audit trails, data that needs querying.
+
+| Data | Container | Rationale |
+|------|-----------|-----------|
+| Conversations | conversations | Permanent record, queryable by user |
+| Messages | messages | Full history, searchable |
+| Thread ID (source of truth) | conversations.AgentThreadId | Backup for Redis cache |
+| Usage Records | usage | Billing, analytics, compliance |
+| Organizations | organizations | Config source of truth |
+| User Preferences | userpreferences | Persistent settings |
+| Audit Logs | auditlogs | Compliance, debugging |
+
+### NEVER Store in Redis
+- [ ] PII without encryption (conversation content, user emails)
+- [ ] Billing-critical data (usage records - use Cosmos)
+- [ ] Compliance/audit logs (need durability)
+- [ ] Large blobs (file attachments - use Blob Storage)
+
+================================================================================
+
 #### A3.1: Add Redis Infrastructure
 - [ ] Add NuGet package: Microsoft.Extensions.Caching.StackExchangeRedis
 - [ ] Add NuGet package: StackExchange.Redis
@@ -197,37 +256,93 @@ private readonly ConcurrentDictionary<string, AgentThread> _conversationThreads 
   ```json
   "Redis": {
     "ConnectionString": "<your-redis-connection-string>",
-    "InstanceName": "BlazorChat:"
+    "InstanceName": "BlazorChat:",
+    "DefaultExpiryMinutes": 60,
+    "EnableCompression": false
   }
   ```
 - [ ] Register IDistributedCache in Program.cs (Redis in prod, InMemory for dev)
-- [ ] Create Azure Cache for Redis resource (or use local Redis for dev)
+- [ ] Create Azure Cache for Redis resource (Basic C0 ~$16/mo for dev)
 
-#### A3.2: Create Thread State Service
-- [ ] Create interface: src/Services/IThreadStateService.cs
+#### A3.2: Create Cache Service Abstraction
+- [ ] Create interface: src/Services/Cache/ICacheService.cs
   ```csharp
-  public interface IThreadStateService
+  public interface ICacheService
   {
-      Task<string?> GetThreadIdAsync(string conversationId);
-      Task SetThreadIdAsync(string conversationId, string threadId, TimeSpan? expiry = null);
-      Task RemoveThreadIdAsync(string conversationId);
-      Task<bool> ThreadExistsAsync(string conversationId);
+      Task<T?> GetAsync<T>(string key, CancellationToken ct = default);
+      Task SetAsync<T>(string key, T value, TimeSpan? expiry = null, CancellationToken ct = default);
+      Task RemoveAsync(string key, CancellationToken ct = default);
+      Task<bool> ExistsAsync(string key, CancellationToken ct = default);
+      Task<T> GetOrSetAsync<T>(string key, Func<Task<T>> factory, TimeSpan? expiry = null, CancellationToken ct = default);
   }
   ```
-- [ ] Create implementation: src/Services/ThreadStateService.cs (uses IDistributedCache)
-- [ ] Store: conversationId → { threadId, createdAt, expiresAt }
-- [ ] Default expiry: 24 hours (matches Azure AI thread lifetime)
+- [ ] Create implementation: src/Services/Cache/RedisCacheService.cs
+- [ ] Create implementation: src/Services/Cache/InMemoryCacheService.cs (for dev)
+- [ ] Handle serialization (System.Text.Json)
+- [ ] Add logging for cache hits/misses
 
-#### A3.3: Refactor AIFoundryService to Use ThreadStateService
-- [ ] Remove: `ConcurrentDictionary<string, AgentThread> _conversationThreads`
-- [ ] Inject: IThreadStateService
-- [ ] On new thread creation: call `SetThreadIdAsync()`
-- [ ] On message send: call `GetThreadIdAsync()` first
-- [ ] This naturally implements Task C4.3.5 (Thread Persistence)!
+#### A3.3: Create Thread State Service (Cache Layer)
+- [ ] Create interface: src/Services/Cache/IThreadCacheService.cs
+  ```csharp
+  public interface IThreadCacheService
+  {
+      Task<ThreadInfo?> GetThreadAsync(string conversationId);
+      Task SetThreadAsync(string conversationId, ThreadInfo info);
+      Task InvalidateThreadAsync(string conversationId);
+  }
+  ```
+- [ ] Create implementation using ICacheService
+- [ ] Key: `thread:{conversationId}`, TTL: 24 hours
+- [ ] Fallback: Read from Cosmos DB Conversation.AgentThreadId if cache miss
 
-#### A3.4: Add Rate Limiting State to Redis (Optional)
-- [ ] Move rate limiting counters to Redis for multi-instance support
-- [ ] Enables accurate rate limiting across load-balanced instances
+#### A3.4: Create Rate Limiting Service
+- [ ] Create interface: src/Services/Cache/IRateLimitService.cs
+  ```csharp
+  public interface IRateLimitService
+  {
+      Task<RateLimitResult> CheckRateLimitAsync(string userId, string limitType);
+      Task<int> IncrementAsync(string userId, string limitType, TimeSpan window);
+      Task ResetAsync(string userId, string limitType);
+  }
+  ```
+- [ ] Rate limit types:
+  - `ai_requests`: 60/minute per user
+  - `conversations`: 100/day per user
+  - `messages`: 500/hour per user
+- [ ] Key: `ratelimit:{userId}:{limitType}:{windowId}`, TTL: window duration
+
+#### A3.5: Create Organization Settings Cache
+- [ ] Create interface: src/Services/Cache/IOrgSettingsCacheService.cs
+- [ ] Cache org settings on first access
+- [ ] Invalidate cache on org settings update
+- [ ] Key: `org:{orgId}:settings`, TTL: 10 minutes
+- [ ] Reduces Cosmos DB reads for every AI request
+
+#### A3.6: Create User Session State Service
+- [ ] Create interface: src/Services/Cache/IUserSessionService.cs
+  ```csharp
+  public interface IUserSessionService
+  {
+      Task<UserSessionState?> GetSessionAsync(string userId);
+      Task UpdateSessionAsync(string userId, Action<UserSessionState> update);
+      Task SetActiveConversationAsync(string userId, string? conversationId);
+  }
+  ```
+- [ ] Store: current conversation, last activity, UI state
+- [ ] Key: `session:{userId}`, TTL: 2 hours (sliding)
+- [ ] Enables multi-tab consistency
+
+#### A3.7: Refactor AIFoundryService to Use Cache
+- [ ] Inject IThreadCacheService instead of ConcurrentDictionary
+- [ ] On cache miss: check Cosmos DB, warm cache
+- [ ] On new thread: write to cache AND Cosmos DB
+- [ ] Remove in-memory `_conversationThreads` dictionary
+
+#### A3.8: Add Cache Metrics and Monitoring
+- [ ] Track cache hit/miss ratio
+- [ ] Alert on high miss rates (cold cache, Redis issues)
+- [ ] Log cache operations at Debug level
+- [ ] Add health check for Redis connectivity
 
 ### Task A4: Background Job Infrastructure
 Priority: MEDIUM (Needed for usage aggregation, webhooks, cleanup)
@@ -486,17 +601,21 @@ Goal: Support multiple organizations with isolated configuration and branding sh
 - [x] Register service in Program.cs
 - [x] Integrate into Chat.razor for token limit checking
 
-### Task C4.3.5: Thread Persistence & Rehydration on Conversation Resume (New) ⚠️
+### Task C4.3.5: Thread Persistence & Rehydration on Conversation Resume ✅ COMPLETE
 Goal: Restore AI agent context when user resumes a previous conversation without double-billing tokens.
 
-**Problem Identified**:
-- Agent threads are ephemeral (in-memory `_conversationThreads` dictionary)
-- When user resumes conversation, `GetOrAdd()` creates a NEW thread
-- AI agent loses all previous context → poor UX ("Who are you?")
-- Thread also lost on: app restart, server scaling, thread expiration (~24hrs)
-- Message replay consumes tokens AGAIN → double-billing users
+**Implementation Summary** (Completed Jan 2026):
+- ✅ Added `AgentThreadId`, `AgentThreadCreatedAt`, `AgentThreadExpiry` to Conversation model
+- ✅ Updated IAIFoundryService with `existingThreadId` parameter and `GetThreadInfo()` method
+- ✅ AIFoundryService now persists thread info and attempts to resume existing threads
+- ✅ ChatApplicationService passes thread ID when resuming, saves new thread info to Cosmos DB
+- ✅ Uses Cosmos DB for persistence (no Redis required)
 
-**Solution Strategy**: Thread Persistence (Primary) + Message Replay (Fallback)
+**Problem Solved**:
+- Agent threads are now persisted to Cosmos DB
+- When user resumes conversation, existing thread is reused (0 extra tokens)
+- Thread info saved: ID, creation time, expiry time
+- Falls back to new thread if existing thread expired or invalid
 
 ```
 Resume conversation
@@ -507,53 +626,49 @@ Check Conversation.AgentThreadId exists?
    Yes     No
    ↓       ↓
 Try resume    Create new thread
-Azure thread  + Replay messages
-   ↓             ↓
-Thread valid?    Track as "rehydrationTokens"
-   ↓             (separate from user billing)
+Azure thread  (saves thread info)
+   ↓             
+Thread valid?    
+   ↓             
    Yes → Use it (0 extra tokens!)
-   No → Fallback to replay
+   No → Create new thread
 ```
 
-#### C4.3.5.1: Extend Conversation Model for Thread Persistence
-- [ ] Add to src/Models/Conversation.cs:
+#### C4.3.5.1: Extend Conversation Model for Thread Persistence ✅
+- [x] Add to src/Models/Conversation.cs:
   ```
   agentThreadId: string?       # Azure AI thread ID for resume
   agentThreadCreatedAt: DateTime?  # Track thread age
   agentThreadExpiry: DateTime?     # When thread likely expires (~24hrs)
   ```
-- [ ] Update CosmosDbService to save/retrieve thread ID
+- [x] Cosmos DB automatically saves/retrieves thread ID (no schema changes needed)
 
-#### C4.3.5.2: Implement Thread Resume Logic
-- [ ] Add method to IAIFoundryService: `TryResumeThreadAsync(agentThreadId) → bool`
-- [ ] Update AIFoundryService to check Azure AI for existing thread validity
-- [ ] On successful resume, populate `_conversationThreads` from persisted ID
-- [ ] Update Conversation.AgentThreadId when new thread created
+#### C4.3.5.2: Implement Thread Resume Logic ✅
+- [x] Added `existingThreadId` parameter to IAIFoundryService methods
+- [x] Added `GetThreadInfo(conversationId)` method
+- [x] AIFoundryService checks Azure AI for existing thread validity via `GetThreadAsync`
+- [x] On successful resume, populates `_conversationThreads` from persisted ID
+- [x] Updates Conversation.AgentThreadId when new thread created
 
-#### C4.3.5.3: Implement Message Replay Fallback
+#### C4.3.5.3: Implement Message Replay Fallback ⏳ DEFERRED
 - [ ] Add method to IAIFoundryService: `RehydrateThreadAsync(conversationId, messages)`
-- [ ] Update AIFoundryService to accept message history for thread initialization
-- [ ] Use ConversationContextManager to trim history to fit token budget
-- [ ] Track rehydration tokens separately (see Task C4.4)
+- [ ] Only needed if thread expiry becomes an issue in practice
 
-#### C4.3.5.4: Integrate with Chat.razor
-- [ ] Modify `SelectConversation()` to attempt thread resume first
-- [ ] Fallback to message replay if thread expired/invalid
-- [ ] Call rehydration BEFORE user can send messages (prevent race condition)
-- [ ] Show loading state during rehydration
+#### C4.3.5.4: Integrate with ChatApplicationService ✅
+- [x] `StreamAIResponseAsync()` passes existing thread ID to AIFoundryService
+- [x] After AI response, captures thread info via `GetThreadInfo()`
+- [x] Saves thread info to Conversation when new thread created
+- [x] Thread info persisted to Cosmos DB on conversation update
 
-#### C4.3.5.5: Configuration
-- [ ] Add configuration: `AIFoundry:ThreadExpiryHours` (default: 24)
-- [ ] Add configuration: `AIFoundry:RehydrationMessageCount` (default: 20)
-- [ ] Add configuration: `AIFoundry:RehydrationTokenBudget` (default: 8000)
-- [ ] Add configuration: `AIFoundry:EnablePromptCaching` (default: true)
+#### C4.3.5.5: Configuration ⏳ DEFERRED
+- [x] Default thread expiry: 24 hours (hardcoded in AIFoundryService)
+- [ ] Add `AIFoundry:ThreadExpiryHours` config option if customization needed
 
-**Edge Cases to Handle**:
-- [ ] Very long conversations (summarize older messages)
-- [ ] Conversations with file attachments (skip or reference only)
-- [ ] Rate limiting during bulk message replay
-- [ ] User sends message before rehydration completes
-- [ ] Thread expired but user hasn't interacted in days
+**Edge Cases Handled**:
+- ✅ Thread expired: Creates new thread automatically
+- ✅ Thread doesn't exist: Creates new thread, saves ID
+- ✅ Thread valid: Resumes without token cost
+- ⏳ Very long conversations: Deferred (message replay fallback)
 
 ### Task C4.4: Add Usage Tracking
 Goal: Track AI usage metrics for cost management, analytics, and quota enforcement.

@@ -19,9 +19,12 @@ public class AIFoundryService : IAIFoundryService, IAsyncDisposable
     private AIProjectClient? _aiProjectClient;
     private AIAgent? _agent;
     private bool _agentWasCreatedByService; // Track if we created the agent vs retrieved existing
-    private readonly ConcurrentDictionary<string, AgentThread> _conversationThreads = new();
+    private readonly ConcurrentDictionary<string, (AgentThread Thread, ThreadInfo Info)> _conversationThreads = new();
     private readonly SemaphoreSlim _initLock = new(1, 1);
     private bool _isInitialized;
+
+    // Thread expiry configuration (default: 24 hours)
+    private static readonly TimeSpan DefaultThreadExpiry = TimeSpan.FromHours(24);
 
     public AIFoundryService(
         ILogger<AIFoundryService> logger,
@@ -176,6 +179,7 @@ public class AIFoundryService : IAIFoundryService, IAsyncDisposable
     public async IAsyncEnumerable<string> SendMessageStreamingAsync(
         string conversationId,
         string message,
+        string? existingThreadId = null,
         [EnumeratorCancellation] CancellationToken cancellationToken = default)
     {
         await EnsureInitializedAsync(cancellationToken);
@@ -189,7 +193,7 @@ public class AIFoundryService : IAIFoundryService, IAsyncDisposable
         try
         {
             // Get or create thread for this conversation
-            var thread = _conversationThreads.GetOrAdd(conversationId, _ => _agent.GetNewThread());
+            var (thread, _) = await GetOrCreateThreadAsync(conversationId, existingThreadId, cancellationToken);
 
             _logger.LogInformation(
                 "Sending message to AI agent. ConversationId: {ConversationId}, MessageLength: {Length}",
@@ -245,6 +249,7 @@ public class AIFoundryService : IAIFoundryService, IAsyncDisposable
     public async Task<string> SendMessageAsync(
         string conversationId,
         string message,
+        string? existingThreadId = null,
         CancellationToken cancellationToken = default)
     {
         await EnsureInitializedAsync(cancellationToken);
@@ -257,7 +262,7 @@ public class AIFoundryService : IAIFoundryService, IAsyncDisposable
         try
         {
             // Get or create thread for this conversation
-            var thread = _conversationThreads.GetOrAdd(conversationId, _ => _agent.GetNewThread());
+            var (thread, _) = await GetOrCreateThreadAsync(conversationId, existingThreadId, cancellationToken);
 
             _logger.LogInformation(
                 "Sending message to AI agent (non-streaming). ConversationId: {ConversationId}",
@@ -299,6 +304,79 @@ public class AIFoundryService : IAIFoundryService, IAsyncDisposable
         }
 
         return Task.CompletedTask;
+    }
+
+    /// <summary>
+    /// Gets the current thread info for a conversation.
+    /// </summary>
+    public ThreadInfo? GetThreadInfo(string conversationId)
+    {
+        if (_conversationThreads.TryGetValue(conversationId, out var entry))
+        {
+            return entry.Info;
+        }
+        return null;
+    }
+
+    /// <summary>
+    /// Gets or creates a thread for a conversation.
+    /// Note: The Microsoft.Agents.AI SDK doesn't support thread resume by ID.
+    /// Threads are in-memory only. The existingThreadId is used to check if we
+    /// have a cached thread for this conversation.
+    /// </summary>
+    private Task<(AgentThread Thread, ThreadInfo Info)> GetOrCreateThreadAsync(
+        string conversationId,
+        string? existingThreadId,
+        CancellationToken cancellationToken)
+    {
+        // Check if we already have the thread in memory
+        if (_conversationThreads.TryGetValue(conversationId, out var existing))
+        {
+            // Check if thread is still valid (not expired)
+            if (existing.Info.ExpiresAt > DateTime.UtcNow)
+            {
+                _logger.LogDebug("Using cached thread for conversation {ConversationId}", conversationId);
+                return Task.FromResult(existing);
+            }
+            else
+            {
+                _logger.LogInformation("Thread expired for conversation {ConversationId}, creating new thread", conversationId);
+                _conversationThreads.TryRemove(conversationId, out _);
+            }
+        }
+
+        // Note: Microsoft.Agents.AI SDK does not support resuming threads by ID.
+        // If existingThreadId is provided but we don't have it in memory, we must create a new thread.
+        // The AI agent will not have previous context - this is a limitation of the SDK.
+        if (!string.IsNullOrWhiteSpace(existingThreadId))
+        {
+            _logger.LogInformation(
+                "Thread {ThreadId} not in memory cache for conversation {ConversationId}. Creating new thread (context will be lost).",
+                existingThreadId, conversationId);
+        }
+
+        // Create new thread
+        var newThread = _agent!.GetNewThread();
+        var createdAt = DateTime.UtcNow;
+        
+        // Generate a unique ID for tracking (since AgentThread doesn't expose Id)
+        var threadId = $"thread_{conversationId}_{createdAt:yyyyMMddHHmmss}";
+        
+        var newInfo = new ThreadInfo
+        {
+            ThreadId = threadId,
+            CreatedAt = createdAt,
+            ExpiresAt = createdAt.Add(DefaultThreadExpiry),
+            IsNewThread = true
+        };
+
+        var newEntry = (newThread, newInfo);
+        _conversationThreads[conversationId] = newEntry;
+
+        _logger.LogInformation("Created new thread {ThreadId} for conversation {ConversationId}",
+            threadId, conversationId);
+
+        return Task.FromResult(newEntry);
     }
 
     private async Task EnsureInitializedAsync(CancellationToken cancellationToken)
