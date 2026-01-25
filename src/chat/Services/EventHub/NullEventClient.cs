@@ -22,4 +22,9 @@ public class NullEventClient : IEventClient
     {
         // Discard - Event Hub is not configured
     }
+
+    public void SendData(OrganizationEvent eventData)
+    {
+        // Discard - Event Hub is not configured
+    }
 }

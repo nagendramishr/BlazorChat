@@ -2,8 +2,11 @@
 @using src.Components.Shared 
 @using MudBlazor
 @using Microsoft.AspNetCore.Components.Web
+@using BlazorChat.Shared.Components.Admin
 
-<Router AppAssembly="typeof(Program).Assembly" NotFoundPage="typeof(Pages.NotFound)">
+<Router AppAssembly="typeof(Program).Assembly" 
+        AdditionalAssemblies="new[] { typeof(OrganizationList).Assembly }"
+        NotFoundPage="typeof(Pages.NotFound)">
     <Found Context="routeData">
         @{
             var orgSlug = routeData.RouteValues.TryGetValue("OrganizationSlug", out var slug) ? slug?.ToString() : null;

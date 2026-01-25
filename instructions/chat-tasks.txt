@@ -103,10 +103,28 @@ Chat.razor → IChatApplicationService → Domain Services → Infrastructure
 - [x] Keep Chat.razor focused on: UI rendering, user input handling, state display
 - [x] Reduced Chat.razor from ~585 lines to ~502 lines (UI-only code)
 
-#### A1.3: Create Organization Application Service (Optional)
-- [ ] Create interface: src/Services/Application/IOrganizationApplicationService.cs
-- [ ] Consolidate org-related operations from Controller + Services
-- [ ] Prepare for Admin UI implementation
+#### A1.3: Create Organization Application Service ✅ COMPLETE
+**Implementation Summary** (Completed Jan 2026):
+- [x] Created interface: src/Services/Application/IOrganizationApplicationService.cs
+- [x] Created implementation: src/Services/Application/OrganizationApplicationService.cs
+- [x] Created OrganizationEvents.cs with defined event types
+- [x] Updated OrganizationController to use application service
+- [x] Registered service in Program.cs
+
+**Features Implemented**:
+- Validation: Name (2-100 chars), Slug (3-50 chars, lowercase, no reserved words), AI config URL validation
+- Event Publishing: OrganizationCreated, OrganizationUpdated, OrganizationDisabled, OrganizationEnabled, OrganizationSlugChanged, OrganizationAIConfigChanged
+- Request/Response models: CreateOrganizationRequest, UpdateOrganizationRequest, OrganizationResult
+- Tracks which fields changed on updates for granular events
+
+**Architecture**:
+```
+OrganizationController → IOrganizationApplicationService → IOrganizationAdminService → CosmosDB
+                              ↓
+                         IEventClient (Event Hub)
+```
+
+**Note**: IOrganizationService remains separate for read-only current org context in UI components.
 
 ### Task A2: Event Publishing to Event Hub ✅ COMPLETE (Replaces MediatR)
 Priority: MEDIUM
@@ -160,232 +178,94 @@ _eventClient.SendData(new MessageSentEvent {
 
 **Next Step**: Wire up event publishing in ChatApplicationService.
 
-### Task A3: Distributed Cache with Redis ✅ PARTIAL (Thread State Complete)
-Priority: HIGH (Solves thread persistence AND enables horizontal scaling)
-Goal: Externalize session state from in-memory dictionaries.
+### Task A3: Thread State Persistence ✅ COMPLETE
+Priority: HIGH (Solves thread persistence across restarts)
+Goal: Persist thread state to Cosmos DB instead of in-memory dictionaries.
 
 **Implementation Status** (Completed Jan 2026):
 - ✅ Created IThreadStateService interface (src/Services/Cache/IThreadStateService.cs)
 - ✅ Created InMemoryThreadStateService (default for dev)
-- ✅ Created RedisThreadStateService (production scaling)
-- ✅ Created CosmosDbThreadStateService (simple deployments)
+- ✅ Created CosmosDbThreadStateService (production)
 - ✅ Added ThreadState:Provider config in appsettings.json
 - ✅ Integrated into ChatApplicationService
-- ⏳ Redis NuGet package optional (commented out until needed)
-- ⏳ Rate limiting, org cache, user session - not yet implemented
 
-**Current Problem**:
-```csharp
-// AIFoundryService.cs - state lost on restart, doesn't scale
-private readonly ConcurrentDictionary<string, AgentThread> _conversationThreads = new();
+**Architecture Decision** (Jan 2026):
+Redis was evaluated and deemed unnecessary. Rationale:
+- Cosmos DB provides acceptable latency (~5-10ms) for thread lookups
+- SimpleL7Proxy already handles rate limiting and circuit breakers
+- Single-instance deployment doesn't require distributed cache
+- Reduces infrastructure complexity and cost
+
+**Current Architecture**:
+```
+┌─────────────┐     ┌─────────────┐
+│ BlazorChat  │────▶│ Cosmos DB   │  (Thread state + all persistent data)
+└─────────────┘     └─────────────┘
+        │
+        ▼
+┌─────────────────┐
+│ SimpleL7Proxy   │  (Rate limiting, circuit breakers, throttling)
+└─────────────────┘
 ```
 
-**Target Architecture**:
+================================================================================
+
+**Note**: Rate limiting is handled by SimpleL7Proxy (priority queues, throttling).
+No additional rate limiting infrastructure needed in BlazorChat.
+
+### Task A4: Background Job Infrastructure - REMOVED FROM SCOPE
+**Decision** (Jan 2026): Background jobs do not belong in the chat app.
+Any scheduled tasks (usage aggregation, cleanup, webhooks) belong in:
+- Reporting Service (see reporting-tasks.txt)
+- Separate Azure Functions worker
+- Dedicated background worker service
+
+BlazorChat is a UI/API application, not a job runner.
+
+### Task A5: Repository Pattern Refactoring - DEFERRED
+Priority: LOW (Optional - only if unit testing requires it)
+**Decision** (Jan 2026): Current CosmosDbService is sufficient.
+Repository pattern adds abstraction without immediate benefit.
+Defer until unit testing requirements mandate mock repositories.
+
+================================================================================
+## PHASE A: COMPLETE ✅
+================================================================================
+
+**Summary** (Jan 2026):
+- A0: SimpleL7Proxy Integration ✅
+- A1: Application Service Layer ✅ (Chat + Organization)
+- A2: Event Hub Publishing ✅
+- A3: Thread State Persistence ✅ (Cosmos DB, no Redis)
+- A4: Background Jobs - OUT OF SCOPE (separate service)
+- A5: Repository Pattern - DEFERRED (not needed yet)
+
+**Architecture Achieved**:
 ```
-┌─────────────┐     ┌─────────────┐     ┌─────────────┐
-│  App Node 1 │────▶│ Azure Redis │◀────│  App Node 2 │
-└─────────────┘     │   Cache     │     └─────────────┘
-                    └─────────────┘
-```
-
-================================================================================
-## WHAT TO STORE IN REDIS vs COSMOS DB
-================================================================================
-
-### Redis (Fast, Ephemeral, Session-scoped)
-Use for: Data that needs sub-millisecond access, can be regenerated, or is short-lived.
-
-| Data | Key Pattern | TTL | Rationale |
-|------|-------------|-----|-----------|
-| **Thread ID Cache** | `thread:{conversationId}` | 24h | Hot cache for thread resume, source of truth in Cosmos |
-| **Rate Limit Counters** | `ratelimit:{userId}:{window}` | 1-60min | Per-user AI request throttling |
-| **User Session State** | `session:{userId}` | 30min-2h | Current conversation, UI preferences |
-| **Organization Settings Cache** | `org:{orgId}:settings` | 5-15min | Cached org config, refresh on change |
-| **Active Typing Indicators** | `typing:{conversationId}` | 5s | Real-time "user is typing" |
-| **Feature Flags Cache** | `flags:{orgId}` | 5min | Cached feature toggles |
-| **API Response Cache** | `apicache:{hash}` | 1-5min | Cache repeated identical prompts |
-| **Distributed Locks** | `lock:{resource}` | 30s | Prevent duplicate operations |
-| **Circuit Breaker State** | `circuit:{service}` | Varies | Track service health |
-
-### Cosmos DB (Durable, Queryable, Long-lived)
-Use for: Permanent records, audit trails, data that needs querying.
-
-| Data | Container | Rationale |
-|------|-----------|-----------|
-| Conversations | conversations | Permanent record, queryable by user |
-| Messages | messages | Full history, searchable |
-| Thread ID (source of truth) | conversations.AgentThreadId | Backup for Redis cache |
-| Usage Records | usage | Billing, analytics, compliance |
-| Organizations | organizations | Config source of truth |
-| User Preferences | userpreferences | Persistent settings |
-| Audit Logs | auditlogs | Compliance, debugging |
-
-### NEVER Store in Redis
-- [ ] PII without encryption (conversation content, user emails)
-- [ ] Billing-critical data (usage records - use Cosmos)
-- [ ] Compliance/audit logs (need durability)
-- [ ] Large blobs (file attachments - use Blob Storage)
-
-================================================================================
-
-#### A3.1: Add Redis Infrastructure
-- [ ] Add NuGet package: Microsoft.Extensions.Caching.StackExchangeRedis
-- [ ] Add NuGet package: StackExchange.Redis
-- [ ] Add configuration in appsettings.json:
-  ```json
-  "Redis": {
-    "ConnectionString": "<your-redis-connection-string>",
-    "InstanceName": "BlazorChat:",
-    "DefaultExpiryMinutes": 60,
-    "EnableCompression": false
-  }
-  ```
-- [ ] Register IDistributedCache in Program.cs (Redis in prod, InMemory for dev)
-- [ ] Create Azure Cache for Redis resource (Basic C0 ~$16/mo for dev)
-
-#### A3.2: Create Cache Service Abstraction
-- [ ] Create interface: src/Services/Cache/ICacheService.cs
-  ```csharp
-  public interface ICacheService
-  {
-      Task<T?> GetAsync<T>(string key, CancellationToken ct = default);
-      Task SetAsync<T>(string key, T value, TimeSpan? expiry = null, CancellationToken ct = default);
-      Task RemoveAsync(string key, CancellationToken ct = default);
-      Task<bool> ExistsAsync(string key, CancellationToken ct = default);
-      Task<T> GetOrSetAsync<T>(string key, Func<Task<T>> factory, TimeSpan? expiry = null, CancellationToken ct = default);
-  }
-  ```
-- [ ] Create implementation: src/Services/Cache/RedisCacheService.cs
-- [ ] Create implementation: src/Services/Cache/InMemoryCacheService.cs (for dev)
-- [ ] Handle serialization (System.Text.Json)
-- [ ] Add logging for cache hits/misses
-
-#### A3.3: Create Thread State Service (Cache Layer)
-- [ ] Create interface: src/Services/Cache/IThreadCacheService.cs
-  ```csharp
-  public interface IThreadCacheService
-  {
-      Task<ThreadInfo?> GetThreadAsync(string conversationId);
-      Task SetThreadAsync(string conversationId, ThreadInfo info);
-      Task InvalidateThreadAsync(string conversationId);
-  }
-  ```
-- [ ] Create implementation using ICacheService
-- [ ] Key: `thread:{conversationId}`, TTL: 24 hours
-- [ ] Fallback: Read from Cosmos DB Conversation.AgentThreadId if cache miss
-
-#### A3.4: Create Rate Limiting Service
-- [ ] Create interface: src/Services/Cache/IRateLimitService.cs
-  ```csharp
-  public interface IRateLimitService
-  {
-      Task<RateLimitResult> CheckRateLimitAsync(string userId, string limitType);
-      Task<int> IncrementAsync(string userId, string limitType, TimeSpan window);
-      Task ResetAsync(string userId, string limitType);
-  }
-  ```
-- [ ] Rate limit types:
-  - `ai_requests`: 60/minute per user
-  - `conversations`: 100/day per user
-  - `messages`: 500/hour per user
-- [ ] Key: `ratelimit:{userId}:{limitType}:{windowId}`, TTL: window duration
-
-#### A3.5: Create Organization Settings Cache
-- [ ] Create interface: src/Services/Cache/IOrgSettingsCacheService.cs
-- [ ] Cache org settings on first access
-- [ ] Invalidate cache on org settings update
-- [ ] Key: `org:{orgId}:settings`, TTL: 10 minutes
-- [ ] Reduces Cosmos DB reads for every AI request
-
-#### A3.6: Create User Session State Service
-- [ ] Create interface: src/Services/Cache/IUserSessionService.cs
-  ```csharp
-  public interface IUserSessionService
-  {
-      Task<UserSessionState?> GetSessionAsync(string userId);
-      Task UpdateSessionAsync(string userId, Action<UserSessionState> update);
-      Task SetActiveConversationAsync(string userId, string? conversationId);
-  }
-  ```
-- [ ] Store: current conversation, last activity, UI state
-- [ ] Key: `session:{userId}`, TTL: 2 hours (sliding)
-- [ ] Enables multi-tab consistency
-
-#### A3.7: Refactor AIFoundryService to Use Cache
-- [ ] Inject IThreadCacheService instead of ConcurrentDictionary
-- [ ] On cache miss: check Cosmos DB, warm cache
-- [ ] On new thread: write to cache AND Cosmos DB
-- [ ] Remove in-memory `_conversationThreads` dictionary
-
-#### A3.8: Add Cache Metrics and Monitoring
-- [ ] Track cache hit/miss ratio
-- [ ] Alert on high miss rates (cold cache, Redis issues)
-- [ ] Log cache operations at Debug level
-- [ ] Add health check for Redis connectivity
-
-### Task A4: Background Job Infrastructure
-Priority: MEDIUM (Needed for usage aggregation, webhooks, cleanup)
-Goal: Enable async processing outside request/response cycle.
-
-#### A4.1: Add Background Job Framework
-- [ ] Option A: Azure Service Bus + Worker (production-ready)
-- [ ] Option B: Hangfire (simpler, built-in dashboard)
-- [ ] Option C: .NET BackgroundService (simplest, single-instance only)
-- [ ] Recommended: Start with BackgroundService, migrate to Service Bus later
-
-#### A4.2: Create Job Infrastructure
-- [ ] Create folder: src/Jobs/
-- [ ] Create base class: src/Jobs/BaseBackgroundJob.cs
-- [ ] Create job queue interface: src/Services/IJobQueue.cs
-
-#### A4.3: Define Initial Jobs
-- [ ] Job: DailyUsageAggregationJob - Rollup conversation usage to daily summaries
-- [ ] Job: DataRetentionCleanupJob - Delete old soft-deleted records
-- [ ] Job: ThreadExpirationCleanupJob - Clean up expired thread references
-- [ ] Job: WebhookDeliveryJob - Retry failed webhook deliveries (future)
-
-### Task A5: Repository Pattern Refactoring
-Priority: LOW (Optional but improves testability)
-Goal: Separate data access from business logic in CosmosDbService.
-
-#### A5.1: Extract Repository Interfaces
-- [ ] Create interface: src/Repositories/IConversationRepository.cs
-- [ ] Create interface: src/Repositories/IMessageRepository.cs
-- [ ] Create interface: src/Repositories/IOrganizationRepository.cs
-- [ ] Create interface: src/Repositories/IUsageRepository.cs
-
-#### A5.2: Implement Repositories
-- [ ] Create: src/Repositories/CosmosConversationRepository.cs
-- [ ] Create: src/Repositories/CosmosMessageRepository.cs
-- [ ] Move pure CRUD operations from CosmosDbService to repositories
-- [ ] Keep CosmosDbService as facade or deprecate
-
-#### A5.3: Update Service Registrations
-- [ ] Register repositories as scoped services
-- [ ] Update ChatApplicationService to use repositories
-- [ ] Create mock repositories for unit testing
-
-================================================================================
-## Architecture Implementation Order
-================================================================================
-
-**Recommended Sequence**:
-```
-Week 1: A1 (Application Service) + A2 (MediatR)
-        └── Chat.razor becomes thin, events enable clean tracking
-
-Week 2: A3 (Redis) 
-        └── Solves thread persistence, enables scaling
-        └── C4.3.5 becomes trivial to implement
-
-Week 3: C4.3.5 (Thread Persistence) + C4.4 (Usage Tracking)
-        └── Built on solid architectural foundation
-        └── Usage tracking uses event handlers from A2
-
-Week 4: A4 (Background Jobs) + Usage aggregation
-        └── Daily rollups, cleanup jobs
-
-Future: A5 (Repository Pattern) - when adding unit tests
+┌─────────────────────────────────────────────────────────────────┐
+│                        BlazorChat                                │
+│  ┌─────────────┐    ┌──────────────────────┐                    │
+│  │ Chat.razor  │───▶│ IChatApplicationSvc  │                    │
+│  │ (UI only)   │    │ IOrganizationAppSvc  │                    │
+│  └─────────────┘    └──────────┬───────────┘                    │
+│                                │                                 │
+│          ┌─────────────────────┼─────────────────────┐          │
+│          ▼                     ▼                     ▼          │
+│  ┌───────────────┐    ┌───────────────┐    ┌────────────────┐   │
+│  │ CosmosDbSvc   │    │ AIFoundrySvc  │    │ IEventClient   │   │
+│  │ (persistence) │    │ (AI calls)    │    │ (Event Hub)    │   │
+│  └───────────────┘    └───────────────┘    └────────────────┘   │
+└─────────────────────────────────────────────────────────────────┘
+         │                      │                      │
+         ▼                      ▼                      ▼
+    ┌─────────┐          ┌─────────────┐        ┌───────────┐
+    │CosmosDB │          │SimpleL7Proxy│        │ Event Hub │
+    └─────────┘          └─────────────┘        └───────────┘
+                               │                      │
+                               ▼                      ▼
+                         ┌─────────┐          ┌─────────────┐
+                         │Azure AI │          │Reporting Svc│
+                         └─────────┘          └─────────────┘
 ```
 
 ================================================================================

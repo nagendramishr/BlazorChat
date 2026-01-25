@@ -9,11 +9,13 @@ using src.Components;
 using src.Components.Account;
 using src.Data;
 using src.Services;
+using src.Services.Application;
 using Microsoft.AspNetCore.Authorization;
 using src.Authorization;
 using src.HealthChecks;
 using src.Services.EventHub;
 using System.Threading.RateLimiting;
+using SharedServices = BlazorChat.Shared.Services;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -93,8 +95,13 @@ builder.Services.AddScoped<IAuthorizationHandler, ConversationAuthorizationHandl
 // Add Organization Service (Scoped because it holds per-request state)
 builder.Services.AddScoped<IOrganizationService, OrganizationService>();
 
-// Add Organization Admin Service (Scoped)
-builder.Services.AddScoped<IOrganizationAdminService, OrganizationAdminService>();
+// Add Organization Admin Service (Scoped) - register for both local and shared interfaces
+builder.Services.AddScoped<OrganizationAdminService>();
+builder.Services.AddScoped<IOrganizationAdminService>(sp => sp.GetRequiredService<OrganizationAdminService>());
+builder.Services.AddScoped<SharedServices.IOrganizationAdminService>(sp => sp.GetRequiredService<OrganizationAdminService>());
+
+// Add Organization Application Service (Scoped - wraps admin service with validation + events)
+builder.Services.AddScoped<IOrganizationApplicationService, OrganizationApplicationService>();
 
 // Add Layout State Service (Scoped for per-circuit state)
 builder.Services.AddScoped<ILayoutStateService, LayoutStateService>();

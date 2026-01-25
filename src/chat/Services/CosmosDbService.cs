@@ -1,6 +1,6 @@
 using Azure.Identity;
 using Microsoft.Azure.Cosmos;
-using src.Models;
+using BlazorChat.Shared.Models;
 using System.Net;
 
 namespace src.Services;

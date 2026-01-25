@@ -1,7 +1,9 @@
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Authorization;
-using src.Models;
+using BlazorChat.Shared.Models;
 using src.Services;
+using src.Services.Application;
+using System.Security.Claims;
 
 namespace src.Controllers;
 
@@ -10,39 +12,34 @@ namespace src.Controllers;
 [Authorize(Policy = "GlobalAdmin")]
 public class OrganizationController : ControllerBase
 {
-    private readonly IOrganizationAdminService _adminService;
+    private readonly IOrganizationApplicationService _orgAppService;
     private readonly ILogger<OrganizationController> _logger;
 
-    public OrganizationController(IOrganizationAdminService adminService, ILogger<OrganizationController> logger)
+    public OrganizationController(IOrganizationApplicationService orgAppService, ILogger<OrganizationController> logger)
     {
-        _adminService = adminService;
+        _orgAppService = orgAppService;
         _logger = logger;
     }
 
+    private string GetCurrentUserId() => User.FindFirstValue(ClaimTypes.NameIdentifier) ?? "unknown";
+
     [HttpPost]
-    public async Task<ActionResult<Organization>> CreateOrganization(Organization organization)
+    public async Task<ActionResult<Organization>> CreateOrganization(CreateOrganizationRequest request)
     {
-        try
+        var result = await _orgAppService.CreateOrganizationAsync(request, GetCurrentUserId());
+        
+        if (!result.Success)
         {
-            var result = await _adminService.OnboardOrganizationAsync(organization);
-            return CreatedAtAction(nameof(GetOrganization), new { id = result.Id }, result);
+            return BadRequest(new { errors = result.Errors });
         }
-        catch (InvalidOperationException ex)
-        {
-            return BadRequest(ex.Message);
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Error creating organization");
-            return StatusCode(500, "Internal server error");
-        }
+
+        return CreatedAtAction(nameof(GetOrganization), new { id = result.Organization!.Id }, result.Organization);
     }
 
     [HttpGet("{id}")]
     public async Task<ActionResult<Organization>> GetOrganization(string id)
     {
-        var orgs = await _adminService.ListOrganizationsAsync();
-        var org = orgs.FirstOrDefault(o => o.Id == id);
+        var org = await _orgAppService.GetOrganizationAsync(id);
         if (org == null) return NotFound();
         return org;
     }
@@ -50,55 +47,65 @@ public class OrganizationController : ControllerBase
     [HttpGet]
     public async Task<ActionResult<IEnumerable<Organization>>> ListOrganizations()
     {
-        return Ok(await _adminService.ListOrganizationsAsync());
+        return Ok(await _orgAppService.ListOrganizationsAsync());
     }
 
     [HttpPut("{id}")]
-    public async Task<IActionResult> UpdateOrganization(string id, Organization organization)
+    public async Task<ActionResult<Organization>> UpdateOrganization(string id, UpdateOrganizationRequest request)
     {
-        if (id != organization.Id) return BadRequest("ID mismatch");
+        var result = await _orgAppService.UpdateOrganizationAsync(id, request, GetCurrentUserId());
+        
+        if (!result.Success)
+        {
+            if (result.Errors.Any(e => e.Contains("not found")))
+            {
+                return NotFound(new { errors = result.Errors });
+            }
+            return BadRequest(new { errors = result.Errors });
+        }
 
-        try
-        {
-            await _adminService.UpdateOrganizationAsync(id, organization);
-            return NoContent();
-        }
-        catch (KeyNotFoundException)
-        {
-            return NotFound();
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Error updating organization");
-            return StatusCode(500, "Internal server error");
-        }
+        return Ok(result.Organization);
     }
 
     [HttpPost("{id}/disable")]
-    public async Task<IActionResult> DisableOrganization(string id)
+    public async Task<ActionResult<Organization>> DisableOrganization(string id, [FromBody] DisableOrganizationRequest? request = null)
     {
-        try
+        var result = await _orgAppService.DisableOrganizationAsync(id, request?.Reason, GetCurrentUserId());
+        
+        if (!result.Success)
         {
-            await _adminService.DisableOrganizationAsync(id);
-            return NoContent();
+            if (result.Errors.Any(e => e.Contains("not found")))
+            {
+                return NotFound(new { errors = result.Errors });
+            }
+            return BadRequest(new { errors = result.Errors });
         }
-        catch (KeyNotFoundException)
-        {
-            return NotFound();
-        }
+
+        return Ok(result.Organization);
     }
 
     [HttpPost("{id}/enable")]
-    public async Task<IActionResult> EnableOrganization(string id)
+    public async Task<ActionResult<Organization>> EnableOrganization(string id)
     {
-        try
+        var result = await _orgAppService.EnableOrganizationAsync(id, GetCurrentUserId());
+        
+        if (!result.Success)
         {
-            await _adminService.EnableOrganizationAsync(id);
-            return NoContent();
+            if (result.Errors.Any(e => e.Contains("not found")))
+            {
+                return NotFound(new { errors = result.Errors });
+            }
+            return BadRequest(new { errors = result.Errors });
         }
-        catch (KeyNotFoundException)
-        {
-            return NotFound();
-        }
+
+        return Ok(result.Organization);
     }
+}
+
+/// <summary>
+/// Request model for disabling an organization.
+/// </summary>
+public class DisableOrganizationRequest
+{
+    public string? Reason { get; set; }
 }

@@ -212,4 +212,12 @@ public class EventHubClient : IEventClient, IHostedService
         string jsonData = JsonSerializer.Serialize(eventData, eventData.GetType());
         SendData(jsonData);
     }
+
+    public void SendData(OrganizationEvent eventData)
+    {
+        if (!isRunning || isShuttingDown) return;
+
+        string jsonData = JsonSerializer.Serialize(eventData, eventData.GetType());
+        SendData(jsonData);
+    }
 }

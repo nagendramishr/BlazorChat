@@ -1,6 +1,6 @@
 using System.Runtime.CompilerServices;
 using System.Threading.Channels;
-using src.Models;
+using BlazorChat.Shared.Models;
 using src.Services.Cache;
 
 namespace src.Services.Application;

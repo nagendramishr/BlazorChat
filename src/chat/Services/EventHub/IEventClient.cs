@@ -10,4 +10,5 @@ public interface IEventClient
     void StopTimer();
     void SendData(string? value);
     void SendData(ChatEvent eventData);
+    void SendData(OrganizationEvent eventData);
 }

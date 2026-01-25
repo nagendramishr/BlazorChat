@@ -103,6 +103,70 @@ public Service(IRequired required, IOptional? optional = null)
 - **Transient**: Stateless utilities
 **Rule**: Match lifetime to state requirements
 
+#### 9B. Shared Library Refactoring (Clean Cut Approach)
+**Problem**: When extracting shared code to a class library, incremental approaches cause:
+- Duplicate types in multiple namespaces (e.g., `src.Models.Organization` vs `BlazorChat.Shared.Models.Organization`)
+- Ambiguous reference compiler errors
+- Multiple build/fix cycles
+- Workaround registrations (implementing both interfaces)
+
+**Anti-Pattern** (What NOT to do):
+1. Copy classes to shared library
+2. Keep originals in main project "just in case"
+3. Try to build → get ambiguous reference errors
+4. Add using aliases and dual interface implementations
+5. Repeat for each duplicate
+
+**Correct Pattern** (Clean Cut):
+1. **Plan first**: Identify ALL classes to share (Models, Interfaces, Data, UI Components)
+2. **Create shared library** with target namespace (`BlazorChat.Shared.*`)
+3. **Move files** (not copy) - delete originals immediately after copying
+4. **Update all references in one pass**: `src.Models` → `BlazorChat.Shared.Models`
+5. **Build once**, fix any remaining references
+
+**Shared Library Structure Example**:
+```
+src/shared/
+├── BlazorChat.Shared.csproj (Sdk="Microsoft.NET.Sdk.Razor" for components)
+├── Data/
+│   ├── ApplicationUser.cs
+│   └── ApplicationDbContext.cs
+├── Models/
+│   ├── Organization.cs (Organization, ThemeSettings, AIConfig)
+│   ├── Conversation.cs
+│   ├── Message.cs
+│   └── UserPreferences.cs
+├── Services/
+│   ├── ICosmosDbService.cs
+│   ├── CosmosDbService.cs
+│   ├── IOrganizationAdminService.cs
+│   └── OrganizationAdminService.cs
+└── Components/
+    └── Admin/
+        ├── OrganizationList.razor
+        └── OrganizationDialog.razor
+```
+
+**Key Decisions Before Starting**:
+- What's truly shared vs project-specific?
+- Which project owns the implementations? (shared lib = reusable; main project = specialized)
+- Namespace convention: `{Company}.{Product}.Shared.*`
+
+**Router Configuration for Shared Pages**:
+```razor
+<Router AppAssembly="typeof(Program).Assembly" 
+        AdditionalAssemblies="new[] { typeof(SharedComponent).Assembly }">
+```
+
+**Service Registration for Shared Interfaces**:
+```csharp
+// Register concrete type, then both interfaces
+builder.Services.AddScoped<OrganizationAdminService>();
+builder.Services.AddScoped<IOrganizationAdminService>(sp => sp.GetRequiredService<OrganizationAdminService>());
+```
+
+**Time Saved**: Clean cut approach takes 10 minutes. Incremental approach with fixes takes 30+ minutes.
+
 #### 9A. Microsoft Agent Framework (Current Implementation)
 **What It Is**: Microsoft's official SDK for building AI agent applications
 **Packages**: 

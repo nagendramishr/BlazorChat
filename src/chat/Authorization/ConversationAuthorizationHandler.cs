@@ -1,6 +1,6 @@
 using System.Security.Claims;
 using Microsoft.AspNetCore.Authorization;
-using src.Models;
+using BlazorChat.Shared.Models;
 
 namespace src.Authorization;
 

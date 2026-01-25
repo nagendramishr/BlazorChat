@@ -1,4 +1,4 @@
-using src.Models;
+using BlazorChat.Shared.Models;
 using Microsoft.Extensions.Primitives;
 
 namespace src.Services;

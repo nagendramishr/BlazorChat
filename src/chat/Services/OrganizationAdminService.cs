@@ -1,9 +1,10 @@
-using src.Models;
+using BlazorChat.Shared.Models;
 using Microsoft.Extensions.Logging;
+using SharedServices = BlazorChat.Shared.Services;
 
 namespace src.Services;
 
-public class OrganizationAdminService : IOrganizationAdminService
+public class OrganizationAdminService : IOrganizationAdminService, SharedServices.IOrganizationAdminService
 {
     private readonly ICosmosDbService _cosmosDbService;
     private readonly ILogger<OrganizationAdminService> _logger;
