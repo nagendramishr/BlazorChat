@@ -11,65 +11,67 @@
 @inject NavigationManager NavigationManager
 @inject IdentityRedirectManager RedirectManager
 
-<PageTitle>Log in</PageTitle>
+<PageTitle>Log in - Admin Portal</PageTitle>
 
-<h1>Log in</h1>
-<div class="row">
-    <div class="col-lg-6">
-        <section>
-            <StatusMessage Message="@errorMessage" />
+<MudContainer MaxWidth="MaxWidth.Small" Class="mt-16">
+    <MudPaper Elevation="4" Class="pa-8">
+        <MudStack Spacing="4">
+            <MudText Typo="Typo.h4" Align="Align.Center">Admin Portal</MudText>
+            <MudText Typo="Typo.subtitle1" Align="Align.Center" Color="Color.Secondary">Sign in to continue</MudText>
+            
+            <MudDivider Class="my-4" />
+            
+            @if (!string.IsNullOrEmpty(errorMessage))
+            {
+                <MudAlert Severity="Severity.Error" Class="mb-4">@errorMessage</MudAlert>
+            }
+            
             <EditForm EditContext="editContext" method="post" OnSubmit="LoginUser" FormName="login">
                 <DataAnnotationsValidator />
-                <h2>Use a local account to log in.</h2>
-                <hr />
-                <ValidationSummary class="text-danger" role="alert" />
-                <div class="form-floating mb-3">
-                    <InputText @bind-Value="Input.Email" id="Input.Email" class="form-control" autocomplete="username webauthn" aria-required="true" placeholder="name@example.com" />
-                    <label for="Input.Email" class="form-label">Email</label>
-                    <ValidationMessage For="() => Input.Email" class="text-danger" />
+                
+                <div class="mb-4">
+                    <label class="mud-input-label" for="email">Email</label>
+                    <InputText @bind-Value="Input.Email" 
+                               id="email"
+                               class="mud-input-slot mud-input-root mud-input-root-outlined" 
+                               style="width:100%;padding:16px;border:1px solid #bdbdbd;border-radius:4px;"
+                               autocomplete="username webauthn" 
+                               placeholder="name@example.com" />
+                    <ValidationMessage For="() => Input.Email" class="mud-input-helper-text mud-input-error" />
                 </div>
-                <div class="form-floating mb-3">
-                    <InputText type="password" @bind-Value="Input.Password" id="Input.Password" class="form-control" autocomplete="current-password" aria-required="true" placeholder="password" />
-                    <label for="Input.Password" class="form-label">Password</label>
-                    <ValidationMessage For="() => Input.Password" class="text-danger" />
+                
+                <div class="mb-4">
+                    <label class="mud-input-label" for="password">Password</label>
+                    <InputText @bind-Value="Input.Password" 
+                               id="password"
+                               type="password"
+                               class="mud-input-slot mud-input-root mud-input-root-outlined"
+                               style="width:100%;padding:16px;border:1px solid #bdbdbd;border-radius:4px;"
+                               autocomplete="current-password" 
+                               placeholder="password" />
+                    <ValidationMessage For="() => Input.Password" class="mud-input-helper-text mud-input-error" />
                 </div>
-                <div class="checkbox mb-3">
-                    <label class="form-label">
-                        <InputCheckbox @bind-Value="Input.RememberMe" class="darker-border-checkbox form-check-input" />
-                        Remember me
-                    </label>
+                
+                <div class="d-flex align-center mb-4">
+                    <InputCheckbox @bind-Value="Input.RememberMe" class="mr-2" style="width:20px;height:20px;" />
+                    <MudText>Remember me</MudText>
                 </div>
-                <div>
-                    <button type="submit" class="w-100 btn btn-lg btn-primary">Log in</button>
-                </div>
-                <hr />
-                <div class="d-flex flex-column">
-                    <span class="text-secondary mx-auto mt-2">OR</span>
-                    <PasskeySubmit Operation="PasskeyOperation.Request" Name="Input.Passkey" EmailName="Input.Email" class="btn btn-link mx-auto">Log in with a passkey</PasskeySubmit>
-                </div>
-                <hr />
-                <div>
-                    <p>
-                        <a href="Account/ForgotPassword">Forgot your password?</a>
-                    </p>
-                    <p>
-                        <a href="@(NavigationManager.GetUriWithQueryParameters("Account/Register", new Dictionary<string, object?> { ["ReturnUrl"] = ReturnUrl }))">Register as a new user</a>
-                    </p>
-                    <p>
-                        <a href="Account/ResendEmailConfirmation">Resend email confirmation</a>
-                    </p>
-                </div>
+                
+                <button type="submit" 
+                        class="mud-button-root mud-button mud-button-filled mud-button-filled-primary mud-button-filled-size-large mud-ripple"
+                        style="width:100%;padding:12px;">
+                    <span class="mud-button-label">Sign In</span>
+                </button>
             </EditForm>
-        </section>
-    </div>
-    <div class="col-lg-4 col-lg-offset-2">
-        <section>
-            <h3>Use another service to log in.</h3>
-            <hr />
-            <ExternalLoginPicker />
-        </section>
-    </div>
-</div>
+            
+            <MudDivider Class="my-4" />
+            
+            <MudStack Row="true" Justify="Justify.Center" Spacing="2">
+                <MudLink Href="Account/ForgotPassword" Typo="Typo.body2">Forgot password?</MudLink>
+            </MudStack>
+        </MudStack>
+    </MudPaper>
+</MudContainer>
 
 @code {
     private string? errorMessage;
